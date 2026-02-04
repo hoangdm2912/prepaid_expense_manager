@@ -22,6 +22,8 @@ class Expense(Base):
     end_date = Column(Date, nullable=False)  # End date for allocation
     sub_code = Column(String(10), nullable=False)  # 9995 or 9996
     allocation_months = Column(Integer, nullable=True)  # Calculated from dates, kept for compatibility
+    already_allocated = Column(Float, default=0.0)
+    past_quarter_year = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     

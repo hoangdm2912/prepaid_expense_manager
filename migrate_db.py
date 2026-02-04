@@ -43,6 +43,18 @@ def migrate_database():
         else:
             print("end_date column already exists")
         
+        # Add already_allocated if it doesn't exist
+        if 'already_allocated' not in columns:
+            print("Adding already_allocated column...")
+            cursor.execute("ALTER TABLE expenses ADD COLUMN already_allocated FLOAT DEFAULT 0.0")
+            print("[OK] Added already_allocated column")
+        
+        # Add past_quarter_year if it doesn't exist
+        if 'past_quarter_year' not in columns:
+            print("Adding past_quarter_year column...")
+            cursor.execute("ALTER TABLE expenses ADD COLUMN past_quarter_year VARCHAR(20)")
+            print("[OK] Added past_quarter_year column")
+        
         # Make allocation_months nullable if needed
         print("Checking allocation_months column...")
         

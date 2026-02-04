@@ -348,14 +348,18 @@ def page_bulk_import():
                                 start_date=expense_data['start_date'],
                                 end_date=expense_data['end_date'],
                                 sub_code=expense_data['sub_code'],
-                                allocation_months=expense_data['allocation_months']
+                                allocation_months=expense_data['allocation_months'],
+                                already_allocated=expense_data.get('already_allocated', 0),
+                                past_quarter_year=expense_data.get('past_quarter_year')
                             )
                             
                             # Calculate allocations
                             allocations_data = allocation_service.calculate_quarterly_allocations(
                                 expense_data['total_amount'],
                                 expense_data['start_date'],
-                                expense_data['end_date']
+                                expense_data['end_date'],
+                                already_allocated=expense_data.get('already_allocated', 0),
+                                past_quarter_year=expense_data.get('past_quarter_year')
                             )
                             
                             for alloc in allocations_data:
@@ -414,6 +418,10 @@ def page_list_expenses():
             with col2:
                 st.metric("Tổng tiền", format_currency(expense.total_amount))
                 st.metric("Số tháng", f"{expense.allocation_months} tháng")
+                if expense.already_allocated > 0:
+                    st.metric("Đã phân bổ", format_currency(expense.already_allocated))
+                if expense.past_quarter_year:
+                    st.metric("Quý-Năm QK", expense.past_quarter_year)
             
             with col3:
                 st.metric("Ngày bắt đầu", expense.start_date.strftime("%d/%m/%Y"))
