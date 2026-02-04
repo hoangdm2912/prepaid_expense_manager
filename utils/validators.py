@@ -16,8 +16,8 @@ def validate_account_number(account_number: str) -> tuple[bool, str]:
     if not account_number.startswith('242'):
         return False, "Số tài khoản phải bắt đầu bằng 242"
     
-    if len(account_number) < 4 or len(account_number) > 10:
-        return False, "Số tài khoản phải có độ dài từ 4-10 ký tự"
+    if len(account_number) != 4:
+        return False, "Số tài khoản phải có độ dài đúng 4 ký tự"
     
     if not account_number.isdigit():
         return False, "Số tài khoản chỉ được chứa chữ số"

@@ -173,7 +173,13 @@ def page_create_expense():
         with col2:
             start_date = st.date_input("Ngày bắt đầu (*)", value=date.today())
             end_date = st.date_input("Ngày kết thúc phân bổ (*)", value=date.today())
-            sub_code = st.selectbox("Mã chi phí phụ (*)", ["9995", "9996"])
+            
+            # Auto-calculate sub-code
+            months = allocation_service.calculate_months_between_dates(start_date, end_date)
+            suggested_sub_code = allocation_service.determine_sub_code(months)
+            
+            sub_code = st.text_input("Mã chi phí phụ (*)", value=suggested_sub_code, disabled=True, help="Tự động chọn dựa trên thời gian phân bổ")
+            st.caption(f"Thời gian phân bổ: {months} tháng -> {suggested_sub_code} ({'Ngắn hạn' if suggested_sub_code == '9995' else 'Dài hạn'})")
             
             uploaded_files = st.file_uploader(
                 "Tài liệu đính kèm", 
@@ -189,8 +195,9 @@ def page_create_expense():
                 st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
                 return
             
-            if not validate_account_number(account_number):
-                st.error("Số tài khoản phải bắt đầu bằng 242")
+            is_valid_acc, acc_error = validate_account_number(account_number)
+            if not is_valid_acc:
+                st.error(f"❌ {acc_error}")
                 return
             
             if end_date <= start_date:

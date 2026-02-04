@@ -22,7 +22,9 @@ class ImportService:
             'Mã chứng từ': ['CT001', 'CT002'],
             'Tổng tiền': [36000000, 24000000],
             'Ngày bắt đầu': ['01/01/2024', '15/02/2024'],
-            'Ngày kết thúc': ['31/12/2024', '14/02/2025']
+            'Ngày kết thúc': ['31/12/2024', '14/02/2025'],
+            'Giá trị đã phân bổ': [0, 5000000],
+            'Quý-Năm Quá Khứ': ['', 'Q1/2024']
         }
         
         return pd.DataFrame(template_data)
@@ -116,7 +118,9 @@ class ImportService:
                 'start_date': start_date,
                 'end_date': end_date,
                 'sub_code': str(row.get('Mã chi phí phụ', '9995')).strip(),
-                'allocation_months': max(1, allocation_months)
+                'allocation_months': max(1, allocation_months),
+                'already_allocated': float(row.get('Giá trị đã phân bổ', 0)) if pd.notna(row.get('Giá trị đã phân bổ')) else 0,
+                'past_quarter_year': str(row.get('Quý-Năm Quá Khứ', '')).strip() if pd.notna(row.get('Quý-Năm Quá Khứ')) else None
             }
             
             expenses.append(expense)
@@ -140,6 +144,12 @@ class ImportService:
             # Additional columns for template to match parse_import_data expectations
             if 'Mã chi phí phụ' not in template_df.columns:
                 template_df['Mã chi phí phụ'] = ['9995', '9996']
+            
+            # Ensure new columns are present
+            if 'Giá trị đã phân bổ' not in template_df.columns:
+                template_df['Giá trị đã phân bổ'] = [0, 0]
+            if 'Quý-Năm Quá Khứ' not in template_df.columns:
+                template_df['Quý-Năm Quá Khứ'] = ['', '']
 
             buffer = BytesIO() if output_path is None else output_path
             
