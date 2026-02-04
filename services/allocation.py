@@ -70,17 +70,7 @@ class AllocationService:
     ) -> List[Dict]:
         """
         Calculate quarterly allocations using pro-rata method based on actual days.
-        
-        Args:
-            total_amount: Total amount to allocate
-            start_date: Start date for allocation
-            end_date: End date for allocation (preferred)
-            allocation_months: Total months for allocation (deprecated, for backward compatibility)
-            already_allocated: Amount already allocated in the past
-            past_quarter_year: Format "QX/YYYY" representing the last allocated quarter
-        
-        Returns:
-            List of allocation dictionaries with quarter details
+        Now ignore already_allocated/past_quarter_year in the core calculation as requested.
         """
         # Calculate end date if not provided
         if end_date is None:
@@ -94,39 +84,32 @@ class AllocationService:
         # Calculate total days in allocation period
         total_days = get_days_in_range(start_date, end_date)
         
-        remaining_amount = total_amount - already_allocated
-        
-        # Parse past quarter year to filter out past quarters
-        past_q = 0
-        past_y = 0
-        if past_quarter_year and "/" in past_quarter_year:
-            try:
-                q_part, y_part = past_quarter_year.split("/")
-                past_q = int(q_part.replace("Q", "").replace("q", ""))
-                past_y = int(y_part)
-            except:
-                pass
-
         allocations = []
         current_date = start_date
         
-        # All quarters that should have been allocated
-        all_potential_allocations = []
-        
+        # Iterate through each quarter in the allocation period
         while current_date <= end_date:
             quarter, year = get_quarter(current_date)
             quarter_start, quarter_end = get_quarter_dates(quarter, year)
             
+            # Determine actual start and end for this quarter's allocation
             allocation_start = max(current_date, quarter_start)
             allocation_end = min(end_date, quarter_end)
+            
+            # Calculate days in this quarter that fall within allocation period
             days_in_quarter = get_days_in_range(allocation_start, allocation_end)
             
-            all_potential_allocations.append({
+            # Calculate pro-rata amount for this quarter (as integer)
+            quarter_amount = round((days_in_quarter / total_days) * total_amount)
+            
+            allocations.append({
                 'quarter': quarter,
                 'year': year,
+                'amount': quarter_amount,  # Integer amount (will be adjusted)
                 'days_in_quarter': days_in_quarter,
                 'start_date': allocation_start,
-                'end_date': allocation_end
+                'end_date': allocation_end,
+                'total_days': total_days
             })
             
             # Move to next quarter
@@ -136,43 +119,15 @@ class AllocationService:
                 next_quarter_month = (quarter * 3) + 1
                 current_date = date(year, next_quarter_month, 1)
         
-        # Filter for future quarters only
-        future_allocations = []
-        if past_y > 0:
-            for alloc in all_potential_allocations:
-                if alloc['year'] > past_y or (alloc['year'] == past_y and alloc['quarter'] > past_q):
-                    future_allocations.append(alloc)
-        else:
-            future_allocations = all_potential_allocations
-
-        if not future_allocations:
-            return []
-
-        # Calculate pro-rata for future quarters based on remaining amount and remaining total days
-        future_total_days = sum(a['days_in_quarter'] for a in future_allocations)
+        # Fix rounding error: adjust last quarter to match total exactly
+        if allocations:
+            total_allocated = sum(a['amount'] for a in allocations)
+            difference = int(total_amount) - total_allocated
+            
+            # Add the difference to the last quarter
+            allocations[-1]['amount'] += difference
         
-        result_allocations = []
-        for alloc in future_allocations:
-            # Calculate amount based on remaining balance pro-rated by days
-            quarter_amount = round((alloc['days_in_quarter'] / future_total_days) * remaining_amount)
-            
-            result_allocations.append({
-                'quarter': alloc['quarter'],
-                'year': alloc['year'],
-                'amount': quarter_amount,
-                'days_in_quarter': alloc['days_in_quarter'],
-                'start_date': alloc['start_date'],
-                'end_date': alloc['end_date'],
-                'total_days': total_days
-            })
-            
-        # Fix rounding error for results
-        if result_allocations:
-            total_result_allocated = sum(a['amount'] for a in result_allocations)
-            difference = int(remaining_amount) - total_result_allocated
-            result_allocations[-1]['amount'] += difference
-
-        return result_allocations
+        return allocations
     
     @staticmethod
     def get_allocation_summary(allocations: List[Dict]) -> Dict:

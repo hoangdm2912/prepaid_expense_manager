@@ -353,13 +353,36 @@ def page_bulk_import():
                                 past_quarter_year=expense_data.get('past_quarter_year')
                             )
                             
-                            # Calculate allocations
+                            # Add historical allocation if exists
+                            if expense_data.get('already_allocated', 0) > 0:
+                                past_q = 0
+                                past_y = 0
+                                if expense_data.get('past_quarter_year') and "/" in expense_data['past_quarter_year']:
+                                    try:
+                                        q_part, y_part = expense_data['past_quarter_year'].split("/")
+                                        past_q = int(q_part.replace("Q", "").replace("q", ""))
+                                        past_y = int(y_part)
+                                    except:
+                                        pass
+                                
+                                if past_y > 0:
+                                    # Create historical record
+                                    # Use start_date as a placeholder for historical dates
+                                    hist_alloc = Allocation(
+                                        quarter=past_q,
+                                        year=past_y,
+                                        amount=expense_data['already_allocated'],
+                                        days_in_quarter=0,  # Distinctive marker for historical
+                                        start_date=expense_data['start_date'],
+                                        end_date=expense_data['start_date']
+                                    )
+                                    new_expense.allocations.append(hist_alloc)
+
+                            # Calculate and add normal allocations
                             allocations_data = allocation_service.calculate_quarterly_allocations(
                                 expense_data['total_amount'],
                                 expense_data['start_date'],
-                                expense_data['end_date'],
-                                already_allocated=expense_data.get('already_allocated', 0),
-                                past_quarter_year=expense_data.get('past_quarter_year')
+                                expense_data['end_date']
                             )
                             
                             for alloc in allocations_data:
@@ -406,7 +429,8 @@ def page_list_expenses():
     
     # Display expenses
     for expense in expenses:
-        with st.expander(f"**{expense.name}** - {format_currency(expense.total_amount)}", expanded=False):
+        combined_total = expense.total_amount + expense.already_allocated
+        with st.expander(f"**{expense.name}** - {format_currency(combined_total)}", expanded=False):
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -416,12 +440,13 @@ def page_list_expenses():
                     st.metric("Mã chứng từ", expense.document_code)
             
             with col2:
-                st.metric("Tổng tiền", format_currency(expense.total_amount))
+                st.metric("Tổng tiền (Kỳ này)", format_currency(expense.total_amount))
                 st.metric("Số tháng", f"{expense.allocation_months} tháng")
                 if expense.already_allocated > 0:
-                    st.metric("Đã phân bổ", format_currency(expense.already_allocated))
+                    st.metric("Giá trị đã phân bổ (QK)", format_currency(expense.already_allocated))
                 if expense.past_quarter_year:
                     st.metric("Quý-Năm QK", expense.past_quarter_year)
+                st.metric("TỔNG GIÁ TRỊ", format_currency(combined_total))
             
             with col3:
                 st.metric("Ngày bắt đầu", expense.start_date.strftime("%d/%m/%Y"))
@@ -442,7 +467,7 @@ def page_list_expenses():
                         'end_date': alloc.end_date,
                         'total_days': sum(a.days_in_quarter for a in expense.allocations)
                     })
-                display_allocation_table(alloc_data, expense.total_amount)
+                display_allocation_table(alloc_data, combined_total)
             
             # Show documents
             if expense.documents:
@@ -725,16 +750,21 @@ def display_allocation_table(allocations: list, total_amount: float):
     cumulative_allocated = 0
     
     for alloc in allocations:
-        percentage = (alloc['days_in_quarter'] / alloc['total_days']) * 100
+        if alloc['total_days'] > 0 and alloc['days_in_quarter'] > 0:
+            percentage = (alloc['days_in_quarter'] / alloc['total_days']) * 100
+            percentage_str = f"{percentage:.2f}%"
+        else:
+            percentage_str = "H.T (Quá khứ)"
+            
         cumulative_allocated += alloc['amount']
         remaining_balance = total_amount - cumulative_allocated
         
         df_data.append({
             'Quý': format_quarter(alloc['quarter'], alloc['year']),
-            'Ngày BĐ': alloc['start_date'].strftime("%d/%m/%Y"),
-            'Ngày KT': alloc['end_date'].strftime("%d/%m/%Y"),
+            'Ngày BĐ': alloc['start_date'].strftime("%d/%m/%Y") if alloc['days_in_quarter'] > 0 else "N/A",
+            'Ngày KT': alloc['end_date'].strftime("%d/%m/%Y") if alloc['days_in_quarter'] > 0 else "N/A",
             'Số ngày': alloc['days_in_quarter'],
-            'Tỷ lệ (%)': f"{percentage:.2f}%",
+            'Tỷ lệ (%)': percentage_str,
             'Số tiền': format_currency(alloc['amount']),
             'Lũy kế phân bổ': format_currency(cumulative_allocated),
             'Còn lại': format_currency(remaining_balance)
