@@ -580,8 +580,9 @@ def page_settings():
     
     if drive_service.is_configured():
         st.success("✅ Google Drive đã được kết nối!")
-        if settings.google_drive_folder_id:
-            st.info(f"📁 Thư mục lưu trữ: **{settings.google_drive_folder_name}** (ID: {settings.google_drive_folder_id})")
+        folder_id = drive_service.get_folder_id()
+        if folder_id:
+            st.info(f"📁 Thư mục lưu trữ: **{settings.google_drive_folder_name}** (ID: {folder_id})")
         else:
             st.warning("⚠️ Đã kết nối nhưng chưa xác định được thư mục lưu trữ.")
     else:
@@ -679,8 +680,9 @@ def page_settings():
                     
                 with st.spinner("Đang tìm và tải bản backup mới nhất..."):
                     # Find backup file
-                    if settings.google_drive_folder_id:
-                        query = f"name = 'expenses.db' and '{settings.google_drive_folder_id}' in parents and trashed = false"
+                    folder_id = drive_service.get_folder_id()
+                    if folder_id:
+                        query = f"name = 'expenses.db' and '{folder_id}' in parents and trashed = false"
                         files = drive_service.list_files(query)
                         if files:
                             file_id = files[0]['id']

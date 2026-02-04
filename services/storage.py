@@ -148,6 +148,12 @@ class GoogleDriveService:
         except Exception as e:
             return False, f"Authentication failed: {str(e)}"
 
+    def get_folder_id(self) -> Optional[str]:
+        """Get the resolved folder ID."""
+        if not self.folder_id and self.service:
+            self._ensure_folder_exists()
+        return self.folder_id
+
     def _ensure_folder_exists(self):
         """Check if target folder exists, if not create it."""
         if not self.service:
