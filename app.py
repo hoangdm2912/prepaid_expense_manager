@@ -351,8 +351,23 @@ def page_bulk_import():
                                 allocation_months=expense_data['allocation_months']
                             )
                             
+                            # Calculate allocations
+                            allocations_data = allocation_service.calculate_quarterly_allocations(
+                                expense_data['total_amount'],
+                                expense_data['start_date'],
+                                expense_data['end_date']
+                            )
+                            
                             for alloc in allocations_data:
-                                new_expense.allocations.append(Allocation(**alloc))
+                                allocation = Allocation(
+                                    quarter=alloc['quarter'],
+                                    year=alloc['year'],
+                                    amount=alloc['amount'],
+                                    days_in_quarter=alloc['days_in_quarter'],
+                                    start_date=alloc['start_date'],
+                                    end_date=alloc['end_date']
+                                )
+                                new_expense.allocations.append(allocation)
                             
                             db.add(new_expense)
                             db.commit()
