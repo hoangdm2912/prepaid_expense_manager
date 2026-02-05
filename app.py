@@ -535,7 +535,8 @@ def page_list_expenses():
     if search_term:
         query = query.filter(
             (Expense.name.contains(search_term)) | 
-            (Expense.account_number.contains(search_term))
+            (Expense.account_number.contains(search_term)) |
+            (Expense.sub_code.contains(search_term))
         )
     
     if selected_tags:
@@ -563,42 +564,47 @@ def page_list_expenses():
         header_text = f"📅 {expense.start_date.strftime('%d/%m/%Y')} | {expense.name} ({expense.account_number})"
         
         with st.expander(header_text, expanded=False):
-            # --- TOP METRICS ROW ---
-            m1, m2, m3, m4 = st.columns(4)
+            # --- TOP METRICS ROW (Simplified) ---
+            m1, m2 = st.columns(2)
             with m1:
                 st.metric("Tổng giá trị", format_currency(combined_total))
             with m2:
-                # Calculate total allocated including history
-                current_allocated = expense.already_allocated + sum(a.amount for a in expense.allocations if a.days_in_quarter > 0)
-                st.metric("Lũy kế đã PB", format_currency(current_allocated))
-            with m3:
-                st.metric("Còn lại", format_currency(combined_total - current_allocated))
-            with m4:
-                st.metric("Thời gian PB", f"{expense.allocation_months} tháng")
+                st.metric("Thời gian phân bổ", f"{expense.allocation_months} tháng")
 
             st.divider()
 
-            # --- MAIN INFO ROW ---
+            # --- MAIN INFO & EDIT ROW ---
             c1, c2 = st.columns([1, 1])
             with c1:
-                st.caption("Thông tin chung")
+                st.caption("ℹ️ Thông tin chi tiết")
+                st.markdown(f"**Mã tài khoản:** {expense.account_number}")
+                st.markdown(f"**Mã phụ (Khoản mục):** {expense.sub_code}")
                 st.markdown(f"**Ngày bắt đầu:** {expense.start_date.strftime('%d/%m/%Y')}")
                 st.markdown(f"**Ngày kết thúc:** {expense.end_date.strftime('%d/%m/%Y')}")
-                st.markdown(f"**Mã phụ:** {expense.sub_code}")
-                if expense.tags:
-                    st.markdown(f"**Tags:** {expense.tags}")
                 
             with c2:
-                st.caption("Chứng từ & Ghi chú")
-                # Editable Document Code
-                new_doc_code = st.text_input("Số chứng từ", value=expense.document_code or "", key=f"doc_code_{expense.id}")
-                if new_doc_code != (expense.document_code or ""):
-                    expense.document_code = new_doc_code
-                    db.commit()
-                    st.toast("Đã cập nhật số chứng từ!")
+                st.caption("✏️ Thông tin bổ sung (Có thể sửa)")
                 
-                if expense.note:
-                    st.info(f"{expense.note}")
+                # Editable: Document Code
+                new_doc = st.text_input("Mã chứng từ", value=expense.document_code or "", key=f"d_{expense.id}")
+                if new_doc != (expense.document_code or ""):
+                    expense.document_code = new_doc
+                    db.commit()
+                    # st.toast("Đã cập nhật Mã chứng từ!")
+
+                # Editable: Tags
+                new_tags = st.text_input("Tags (phân cách dấu phẩy)", value=expense.tags or "", key=f"t_{expense.id}")
+                if new_tags != (expense.tags or ""):
+                    expense.tags = new_tags
+                    db.commit()
+                    # st.toast("Đã cập nhật Tags!")
+                
+                # Editable: Note
+                new_note = st.text_area("Ghi chú", value=expense.note or "", height=68, key=f"n_{expense.id}")
+                if new_note != (expense.note or ""):
+                    expense.note = new_note
+                    db.commit()
+                    # st.toast("Đã cập nhật Ghi chú!")
 
             # --- ALLOCATION SCHEDULE (Moved Up) ---
             st.markdown("##### 📅 Kế hoạch phân bổ")
