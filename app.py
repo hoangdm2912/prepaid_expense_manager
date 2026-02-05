@@ -774,7 +774,7 @@ def page_allocation_schedule():
                             if days_passed > 0:
                                 # Pro-rata
                                 ratio = days_passed / alloc.days_in_quarter
-                                accumulated_alloc += alloc.amount * ratio
+                                accumulated_alloc += round(alloc.amount * ratio)
                     
                     remaining_balance = total_value - accumulated_alloc
                     
@@ -787,9 +787,9 @@ def page_allocation_schedule():
                         "Ngắn/Dài hạn (Mã 999x)": term_type,
                         "Tags": expense.tags or "(Không có)",
                         "Mã Chứng từ": expense.document_code or "",
-                        "Tổng Gốc": total_value,
-                        "Đã Phân Bổ (Lũy kế)": accumulated_alloc,
-                        "Số Dư Cuối Kỳ": remaining_balance,
+                        "Tổng Gốc": int(round(total_value)),
+                        "Đã Phân Bổ (Lũy kế)": int(round(accumulated_alloc)),
+                        "Số Dư Cuối Kỳ": int(round(remaining_balance)),
                         "Ghi chú": expense.note
                     })
                 
@@ -798,7 +798,8 @@ def page_allocation_schedule():
                 # Ensure numeric columns and fill NA
                 numeric_cols = ["Tổng Gốc", "Đã Phân Bổ (Lũy kế)", "Số Dư Cuối Kỳ"]
                 for col in numeric_cols:
-                    df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
+                    # Coerce and then cast to int to remove any .0
+                    df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0).astype('int64')
                 
                 # Calculate Totals
                 total_row = {
@@ -865,6 +866,7 @@ def page_allocation_schedule():
                 
                 col_exp1, _ = st.columns([1, 4])
                 with col_exp1:
+                     # Simplified Export
                      if st.button("📥 Xuất Báo cáo Excel", key="btn_export_tab1"):
                          import io
                          output_path = f"data/bao_cao_{report_date.strftime('%Y%m%d')}.xlsx"
@@ -878,6 +880,9 @@ def page_allocation_schedule():
                                     valid_group_by = [col for col in group_by if col in df_report.columns]
                                     if valid_group_by:
                                         p_exp = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
+                                        p_exp['Tổng Gốc'] = p_exp['Tổng Gốc'].astype('int64')
+                                        p_exp['Đã Phân Bổ (Lũy kế)'] = p_exp['Đã Phân Bổ (Lũy kế)'].astype('int64')
+                                        p_exp['Số Dư Cuối Kỳ'] = p_exp['Số Dư Cuối Kỳ'].astype('int64')
                                         p_exp.to_excel(writer, sheet_name='Tong_Hop_Pivot', index=False)
                                  except:
                                      pass
@@ -952,7 +957,7 @@ def page_allocation_schedule():
                     'Ngày BĐ': alloc.start_date.strftime("%d/%m/%Y"),
                     'Ngày KT': alloc.end_date.strftime("%d/%m/%Y"),
                     'Số ngày': alloc.days_in_quarter,
-                    'Số tiền': alloc.amount,
+                    'Số tiền': int(round(alloc.amount)), # Force Int
                     'Tags': alloc.expense.tags
                 })
             
@@ -966,7 +971,8 @@ def page_allocation_schedule():
                 st.metric("Tổng số dòng phân bổ", len(allocations))
             with c3:
                 total_amount = sum(a.amount for a in allocations)
-                st.metric("Tổng tiền phân bổ", format_currency(total_amount))
+                # Use helper or default format
+                st.metric("Tổng tiền phân bổ", f"{int(total_amount):,}")
             
             # Display table
             st.dataframe(
