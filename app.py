@@ -653,7 +653,12 @@ def page_list_expenses():
             for alloc in sorted_allocs:
                 # Update running totals
                 alloc_amount = int(round(alloc.amount))
-                running_accumulated += alloc_amount
+                
+                # IMPORTANT: If dummy allocation (days=0), don't add to accumulated 
+                # because we started with expense.already_allocated
+                if alloc.days_in_quarter > 0:
+                    running_accumulated += alloc_amount
+                
                 remaining_val = total_expense_val - running_accumulated
                 
                 # Combined Quarter/Year for simpler view
@@ -1001,7 +1006,11 @@ def page_allocation_schedule():
                     current_accumulated = exp.already_allocated
                     for a in exp_allocs:
                         a_amount = int(round(a.amount))
-                        current_accumulated += a_amount
+                        
+                        # IMPORTANT: Skip adding if dummy entry (days=0)
+                        if a.days_in_quarter > 0:
+                            current_accumulated += a_amount
+                            
                         if a.id == alloc.id:
                             break
                     
