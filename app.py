@@ -513,11 +513,14 @@ def page_list_expenses():
     db = SessionLocal()
     
     # 1. Filters
-    col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
-        search_term = st.text_input("🔍 Tìm kiếm theo tên hoặc số tài khoản:")
+        search_term = st.text_input("🔍 Tìm kiếm:", placeholder="Tên, Số TK, v.v.")
     
     with col_f2:
+        term_filter = st.selectbox("⏳ Hạn mức:", ["Tất cả", "Ngắn hạn (9995)", "Dài hạn (9996)"])
+
+    with col_f3:
         # Get all unique tags for filter
         all_tags = []
         all_expenses_query = db.query(Expense.tags).filter(Expense.tags.isnot(None)).all()
@@ -527,7 +530,7 @@ def page_list_expenses():
                 all_tags.extend(tags_list)
         unique_tags = sorted(list(set(all_tags)))
         
-        selected_tags = st.multiselect("🏷️ Lọc theo Tags:", options=unique_tags)
+        selected_tags = st.multiselect("🏷️ Tags:", options=unique_tags)
 
     # 2. Query
     query = db.query(Expense)
@@ -538,6 +541,10 @@ def page_list_expenses():
             (Expense.account_number.contains(search_term)) |
             (Expense.sub_code.contains(search_term))
         )
+    
+    if term_filter != "Tất cả":
+        code_to_filter = "9995" if "9995" in term_filter else "9996"
+        query = query.filter(Expense.sub_code == code_to_filter)
     
     if selected_tags:
         # Simple OR filtering for tags (if expense has ANY of the selected tags)
@@ -560,8 +567,8 @@ def page_list_expenses():
     for expense in expenses:
         combined_total = expense.total_amount + expense.already_allocated
         
-        # Header with Name, Account, and Start Date
-        header_text = f"📅 {expense.start_date.strftime('%d/%m/%Y')} | {expense.name} ({expense.account_number})"
+        # Header with Name, Account, SubCode and Start Date
+        header_text = f"📅 {expense.start_date.strftime('%d/%m/%Y')} | [{expense.sub_code}] {expense.name} ({expense.account_number})"
         
         with st.expander(header_text, expanded=False):
             # --- TOP METRICS ROW (Simplified) ---
