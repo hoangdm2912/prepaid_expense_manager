@@ -642,13 +642,28 @@ def page_list_expenses():
             
             # Prepare data for easy viewing - Reverting to simpler structure
             schedule_data = []
-            for alloc in expense.allocations:
+            
+            # Sort allocations by date to ensure correct running total calculation
+            sorted_allocs = sorted(expense.allocations, key=lambda x: (x.year, x.quarter))
+            
+            # Initial running total starts with historical allocated amount
+            running_accumulated = expense.already_allocated
+            total_expense_val = expense.total_amount + expense.already_allocated
+            
+            for alloc in sorted_allocs:
+                # Update running totals
+                alloc_amount = int(round(alloc.amount))
+                running_accumulated += alloc_amount
+                remaining_val = total_expense_val - running_accumulated
+                
                 # Combined Quarter/Year for simpler view
                 q_label = f"Q{alloc.quarter}/{alloc.year}" if alloc.quarter > 0 else "QK (Quá khứ)"
                 
                 schedule_data.append({
                     "Quý/Năm": q_label,
-                    "Số tiền": int(round(alloc.amount)), # Force int
+                    "Số tiền": alloc_amount, # Force int
+                    "Lũy kế đã PB": int(running_accumulated),
+                    "Còn lại chưa PB": int(remaining_val),
                     "Ngày BĐ": alloc.start_date.strftime("%d/%m/%Y"),
                     "Ngày KT": alloc.end_date.strftime("%d/%m/%Y"),
                     "Số ngày": alloc.days_in_quarter
@@ -662,7 +677,9 @@ def page_list_expenses():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Số tiền": st.column_config.NumberColumn(format=None)
+                    "Số tiền": st.column_config.NumberColumn(format=None),
+                    "Lũy kế đã PB": st.column_config.NumberColumn(format=None),
+                    "Còn lại chưa PB": st.column_config.NumberColumn(format=None)
                 }
             )
             
@@ -719,7 +736,7 @@ def page_allocation_schedule():
             col_c1, col_c2, col_c3 = st.columns(3)
             
             with col_c1:
-                report_date = st.date_input("Chọn ngày báo cáo (Số dư cuối kỳ):", value=date.today())
+                report_date = st.date_input("Chọn ngày báo cáo (Số dư cuối kỳ):", value=date.today(), format="DD/MM/YYYY")
             
             with col_c2:
                 group_by = st.multiselect(
@@ -745,9 +762,9 @@ def page_allocation_schedule():
 
         # --- DATA CALCULATION ---
         if run_report:
-            st.session_state['report_generated'] = True
+            st.session_state['report_generated_tab1'] = True
             
-        if st.session_state.get('report_generated'):
+        if st.session_state.get('report_generated_tab1'):
             # Fetch all expenses
             query = db.query(Expense)
             
@@ -921,101 +938,135 @@ def page_allocation_schedule():
         st.markdown("### 📅 Dữ liệu phân bổ chi tiết theo từng Quý")
         
         # Filter options
-        col_t2_1, col_t2_2 = st.columns(2)
-        with col_t2_1:
-            year_filter = st.selectbox(
-                "Chọn năm",
-                options=["Tất cả"] + list(range(date.today().year - 2, date.today().year + 5)),
-                key="year_filter_tab2"
-            )
-        
-        with col_t2_2:
-            quarter_filter = st.selectbox(
-                "Chọn quý",
-                options=["Tất cả", "Q1", "Q2", "Q3", "Q4"],
-                key="quarter_filter_tab2"
-            )
-        
-        # Get all allocations
-        alloc_query = db.query(Allocation).join(Expense)
-        
-        # Apply Filters
-        if year_filter != "Tất cả":
-            alloc_query = alloc_query.filter(Allocation.year == year_filter)
-        
-        if quarter_filter != "Tất cả":
-            quarter_num = int(quarter_filter[1])
-            alloc_query = alloc_query.filter(Allocation.quarter == quarter_num)
-            
-        # Also filter by tags if needed? User didn't explicitly ask, but consistency is good.
-        # But let's stick to "Restore old view" exactly. Old view didn't have tag filter.
-        
-        # Deterministic Sort
-        alloc_query = alloc_query.order_by(Allocation.year.desc(), Allocation.quarter.asc(), Expense.created_at.desc())
-        
-        allocations = alloc_query.all()
-        
-        if not allocations:
-            st.info("📭 Không có dữ liệu phân bổ cho giai đoạn này.")
-        else:
-            # Create summary table (Old Logic)
-            summary_data = []
-            for alloc in allocations:
-                # Format Quarter: Just "Qx" or "QK"
-                q_str = f"Q{alloc.quarter}" if alloc.quarter > 0 else "QK"
-                
-                # Format Year: Convert to string to avoid commas
-                y_str = str(alloc.year) if alloc.year > 0 else ""
-
-                summary_data.append({
-                    'Khoản mục': alloc.expense.name,
-                    'Số TK': alloc.expense.account_number,
-                    'Mã phụ': alloc.expense.sub_code,
-                    'Quý': q_str,
-                    'Năm': y_str,
-                    'Ngày BĐ': alloc.start_date.strftime("%d/%m/%Y"),
-                    'Ngày KT': alloc.end_date.strftime("%d/%m/%Y"),
-                    'Số ngày': alloc.days_in_quarter,
-                    'Số tiền': int(round(alloc.amount)), # Force Int
-                    'Tags': alloc.expense.tags
-                })
-            
-            df_sched = pd.DataFrame(summary_data)
-            
-            # Display summary metrics
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Tổng số khoản mục", len(set(a.expense_id for a in allocations)))
-            with c2:
-                st.metric("Tổng số dòng phân bổ", len(allocations))
-            with c3:
-                total_amount = sum(a.amount for a in allocations)
-                # Use helper or default format
-                st.metric("Tổng tiền phân bổ", f"{int(total_amount):,}")
-            
-            # Display table
-            st.dataframe(
-                df_sched,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Số tiền": st.column_config.NumberColumn(format=None) # Default to int with commas
-                }
-            )
-            
-            # Export all button
-            if st.button("📥 Xuất toàn bộ ra Excel (Tab này)", use_container_width=True, key="btn_export_tab2"):
-                import io
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_sched.to_excel(writer, sheet_name='Phan_Bo_Chi_Tiet', index=False)
-                
-                st.download_button(
-                    label="⬇️ Tải file Excel",
-                    data=buffer.getvalue(),
-                    file_name=f"allocation_schedule_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        with st.expander("⚙️ Bộ lọc dữ liệu", expanded=True):
+            col_t2_1, col_t2_2, col_t2_3 = st.columns(3)
+            with col_t2_1:
+                year_filter = st.selectbox(
+                    "Chọn năm",
+                    options=["Tất cả"] + list(range(date.today().year - 2, date.today().year + 5)),
+                    key="year_filter_tab2"
                 )
+            
+            with col_t2_2:
+                quarter_filter = st.selectbox(
+                    "Chọn quý",
+                    options=["Tất cả", "Q1", "Q2", "Q3", "Q4"],
+                    key="quarter_filter_tab2"
+                )
+            
+            with col_t2_3:
+                run_report_tab2 = st.button("🚀 Tổng hợp số liệu", type="primary", key="btn_run_report_tab2")
+        
+        # --- DATA CALCULATION ---
+        if run_report_tab2:
+            st.session_state['report_generated_tab2'] = True
+
+        if st.session_state.get('report_generated_tab2'):
+            # Get all allocations
+            alloc_query = db.query(Allocation).join(Expense)
+            
+            # Apply Filters
+            if year_filter != "Tất cả":
+                alloc_query = alloc_query.filter(Allocation.year == year_filter)
+            
+            if quarter_filter != "Tất cả":
+                quarter_num = int(quarter_filter[1])
+                alloc_query = alloc_query.filter(Allocation.quarter == quarter_num)
+                
+            # Also filter by tags if needed? User didn't explicitly ask, but consistency is good.
+            # But let's stick to "Restore old view" exactly. Old view didn't have tag filter.
+            
+            # Deterministic Sort
+            alloc_query = alloc_query.order_by(Allocation.year.desc(), Allocation.quarter.asc(), Expense.created_at.desc())
+            
+            allocations = alloc_query.all()
+            
+            if not allocations:
+                st.info("📭 Không có dữ liệu phân bổ cho giai đoạn này.")
+            else:
+                # Create summary table (Old Logic)
+                summary_data = []
+                
+                # Pre-calculate data for efficiency if needed, but per-row calculation is safer for correctness with filters
+                for alloc in allocations:
+                    # Calculate Running Totals for this specific expense up to this allocation
+                    exp = alloc.expense
+                    total_exp_val = exp.total_amount + exp.already_allocated
+                    
+                    # Get all allocations for this expense sequentially
+                    # Note: This might be N+1 lazy loading. For small/medium datasets it's OK.
+                    # Optimization: Sort allocations in python
+                    exp_allocs = sorted(exp.allocations, key=lambda x: (x.year, x.quarter))
+                    
+                    current_accumulated = exp.already_allocated
+                    for a in exp_allocs:
+                        current_accumulated += int(round(a.amount))
+                        if a.id == alloc.id:
+                            break
+                    
+                    current_remaining = total_exp_val - current_accumulated
+
+                    # Format Quarter: Just "Qx" or "QK"
+                    q_str = f"Q{alloc.quarter}" if alloc.quarter > 0 else "QK"
+                    
+                    # Format Year: Convert to string to avoid commas
+                    y_str = str(alloc.year) if alloc.year > 0 else ""
+
+                    summary_data.append({
+                        'Khoản mục': alloc.expense.name,
+                        'Số TK': alloc.expense.account_number,
+                        'Mã phụ': alloc.expense.sub_code,
+                        'Quý': q_str,
+                        'Năm': y_str,
+                        'Ngày BĐ': alloc.start_date.strftime("%d/%m/%Y"),
+                        'Ngày KT': alloc.end_date.strftime("%d/%m/%Y"),
+                        'Số ngày': alloc.days_in_quarter,
+                        'Số tiền': int(round(alloc.amount)), # Force Int
+                        'Lũy kế đã PB': int(current_accumulated),
+                        'Còn lại chưa PB': int(current_remaining),
+                        'Tags': alloc.expense.tags
+                    })
+                
+                df_sched = pd.DataFrame(summary_data)
+                
+                # Display summary metrics
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("Tổng số khoản mục", len(set(a.expense_id for a in allocations)))
+                with c2:
+                    st.metric("Tổng số dòng phân bổ", len(allocations))
+                with c3:
+                    total_amount = sum(a.amount for a in allocations)
+                    # Use helper or default format
+                    st.metric("Tổng tiền phân bổ (View này)", f"{int(total_amount):,}")
+                
+                # Display table
+                st.dataframe(
+                    df_sched,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Số tiền": st.column_config.NumberColumn(format=None), # Default to int with commas
+                        "Lũy kế đã PB": st.column_config.NumberColumn(format=None),
+                        "Còn lại chưa PB": st.column_config.NumberColumn(format=None)
+                    }
+                )
+                
+                # Export all button
+                if st.button("📥 Xuất toàn bộ ra Excel (Tab này)", use_container_width=True, key="btn_export_tab2"):
+                    import io
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                        df_sched.to_excel(writer, sheet_name='Phan_Bo_Chi_Tiet', index=False)
+                    
+                    st.download_button(
+                        label="⬇️ Tải file Excel",
+                        data=buffer.getvalue(),
+                        file_name=f"allocation_schedule_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+        else:
+             st.info("👈 Vui lòng nhấn nút **'🚀 Tổng hợp số liệu'** để xem.")
 
     db.close()
 
