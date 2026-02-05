@@ -976,8 +976,8 @@ def page_allocation_schedule():
             # Also filter by tags if needed? User didn't explicitly ask, but consistency is good.
             # But let's stick to "Restore old view" exactly. Old view didn't have tag filter.
             
-            # Deterministic Sort
-            alloc_query = alloc_query.order_by(Allocation.year.desc(), Allocation.quarter.asc(), Expense.created_at.desc())
+            # Deterministic Sort - Chronological (Ascending) for intuitive Running Totals
+            alloc_query = alloc_query.order_by(Allocation.year.asc(), Allocation.quarter.asc(), Expense.created_at.desc())
             
             allocations = alloc_query.all()
             
@@ -993,14 +993,15 @@ def page_allocation_schedule():
                     exp = alloc.expense
                     total_exp_val = exp.total_amount + exp.already_allocated
                     
-                    # Get all allocations for this expense sequentially
+                    # Get all allocations for this expense sequentially (Chronological)
                     # Note: This might be N+1 lazy loading. For small/medium datasets it's OK.
                     # Optimization: Sort allocations in python
                     exp_allocs = sorted(exp.allocations, key=lambda x: (x.year, x.quarter))
                     
                     current_accumulated = exp.already_allocated
                     for a in exp_allocs:
-                        current_accumulated += int(round(a.amount))
+                        a_amount = int(round(a.amount))
+                        current_accumulated += a_amount
                         if a.id == alloc.id:
                             break
                     
