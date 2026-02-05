@@ -788,6 +788,11 @@ def page_allocation_schedule():
             
             df_report = pd.DataFrame(report_data)
             
+            # Ensure numeric columns are actually numeric
+            numeric_cols = ["Tổng Gốc", "Đã Phân Bổ (Lũy kế)", "Số Dư Cuối Kỳ"]
+            for col in numeric_cols:
+                df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
+
             # --- PIVOT VIEW ---
             if group_by:
                 st.markdown("### 🧬 Báo cáo Tổng hợp (Pivot)")
@@ -798,16 +803,16 @@ def page_allocation_schedule():
                         valid_group_by = [col for col in group_by if col in df_report.columns]
                         
                         if valid_group_by:
-                            pivot_df = df_report.groupby(valid_group_by)[["Tổng Gốc", "Đã Phân Bổ (Lũy kế)", "Số Dư Cuối Kỳ"]].sum().reset_index()
+                            pivot_df = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
                             
-                            # Use column_config for formatting instead of manual string conversion to avoid React/Streamlit type errors
+                            # Use column_config for formatting instead of manual string conversion
                             st.dataframe(
                                 pivot_df,
                                 use_container_width=True,
                                 column_config={
-                                    "Tổng Gốc": st.column_config.NumberColumn(format="%d"),
-                                    "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%d"),
-                                    "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%d"),
+                                    "Tổng Gốc": st.column_config.NumberColumn(format="%.0f"),
+                                    "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%.0f"),
+                                    "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
                                 },
                                 key="pivot_table_view" # Stable Key
                             )
@@ -826,9 +831,9 @@ def page_allocation_schedule():
             st.dataframe(
                 df_report,
                 column_config={
-                    "Tổng Gốc": st.column_config.NumberColumn(format="%d"),
-                    "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%d"),
-                    "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%d"),
+                    "Tổng Gốc": st.column_config.NumberColumn(format="%.0f"),
+                    "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%.0f"),
+                    "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
                 },
                 use_container_width=True,
                 hide_index=True,
