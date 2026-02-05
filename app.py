@@ -639,8 +639,9 @@ def page_list_expenses():
                 }
             )
 
-            # --- DOCUMENT MANAGEMENT (Collapsible) ---
-            with st.expander("📂 Quản lý chứng từ đính kèm & Thao tác khác"):
+            # --- DOCUMENT MANAGEMENT (Toggle) ---
+            if st.checkbox("📂 Quản lý chứng từ & Thao tác khác", key=f"toggle_docs_{expense.id}"):
+                st.markdown("---")
                 # Documents
                 if expense.documents:
                     for doc in expense.documents:
