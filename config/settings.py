@@ -36,27 +36,10 @@ class Settings(BaseSettings):
         description="Target Google Drive folder ID for uploads"
     )
     
-    # Email Configuration
-    smtp_server: str = Field(default="smtp.gmail.com")
-    smtp_port: int = Field(default=587)
-    smtp_username: Optional[str] = Field(default=None)
-    smtp_password: Optional[str] = Field(default=None)
-    email_from: Optional[str] = Field(default=None)
-    
-    # Zalo API Configuration
-    zalo_app_id: Optional[str] = Field(default=None)
-    zalo_secret_key: Optional[str] = Field(default=None)
-    zalo_access_token: Optional[str] = Field(default=None)
-    zalo_phone_number: Optional[str] = Field(default=None)
-    
     # Application Settings
     app_title: str = Field(
         default="Quản Lý Chi Phí Trả Trước (TK 242)",
         description="Application title"
-    )
-    notification_days_before: int = Field(
-        default=7,
-        description="Days before quarter end to send notifications"
     )
     
     class Config:

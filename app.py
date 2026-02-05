@@ -10,7 +10,6 @@ from models.database import init_db, SessionLocal, Expense, Allocation, Document
 from models.expense import ExpenseCreate
 from services.allocation import AllocationService
 from services.storage import GoogleDriveService
-from services.notification import NotificationService
 from services.export import ExportService
 from services.import_service import ImportService
 from utils.validators import validate_account_number, validate_amount, validate_file_type
@@ -27,7 +26,6 @@ st.set_page_config(
 
 # Initialize services first (needed for auto-restore)
 drive_service = GoogleDriveService()
-notification_service = NotificationService()
 allocation_service = AllocationService()
 export_service = ExportService()
 import_service = ImportService()
@@ -126,17 +124,6 @@ def main():
         st.sidebar.success("✅ Google Drive")
     else:
         st.sidebar.warning("⚠️ Google Drive chưa cấu hình")
-    
-    configured_channels = notification_service.get_configured_channels()
-    if 'email' in configured_channels:
-        st.sidebar.success("✅ Email")
-    else:
-        st.sidebar.warning("⚠️ Email chưa cấu hình")
-    
-    if 'zalo' in configured_channels:
-        st.sidebar.success("✅ Zalo")
-    else:
-        st.sidebar.warning("⚠️ Zalo chưa cấu hình")
     
     # Sidebar Info
     st.sidebar.markdown("---")
@@ -1127,22 +1114,22 @@ def page_settings():
         Để tránh việc phải đăng nhập lại mỗi 7 ngày hoặc khi ứng dụng khởi động lại, bạn hãy thực hiện:
         
         1. **Chế độ Production**: Đảm bảo dự án Google Cloud của bạn đã chuyển sang trạng thái **"In Production"** (OAuth consent screen).
-        2. **Lưu Token vào Secrets**: Copy nội dung Token bên dưới và dán vào phần **Secrets** của Streamlit.
+        2. **Lưu Token vào Secrets**: Sau khi kết nối thành công, token sẽ được lưu tự động.
+        
+        **⚠️ LƯU Ý BẢO MẬT:** 
+        - Token chứa thông tin nhạy cảm để truy cập Google Drive của bạn
+        - KHÔNG BAO GIỜ chia sẻ token với người khác
+        - KHÔNG commit token vào Git/GitHub
+        - Nếu cần backup token, lưu vào Streamlit Secrets (Settings > Secrets)
         """)
         
         token_path = settings.google_drive_token_file
-        token_content = None
         
         if os.path.exists(token_path):
-            with open(token_path, 'r') as f:
-                token_content = f.read()
+            st.success("✅ Token đã được lưu và đang hoạt động!")
+            st.info("🔐 Token được bảo mật và không hiển thị để đảm bảo an toàn.")
         elif "GOOGLE_TOKEN_JSON" in st.secrets:
-            token_content = st.secrets["GOOGLE_TOKEN_JSON"]
-            
-        if token_content:
-            st.success("✅ Đã tìm thấy Token!")
-            st.markdown("Copy nội dung này dán vào biến `GOOGLE_TOKEN_JSON` trong Secrets:")
-            st.code(token_content, language="json")
+            st.success("✅ Token đã được lưu trong Secrets!")
         else:
             st.warning("⚠️ Chưa có Token. Hãy thực hiện kết nối ở trên trước.")
 
@@ -1230,19 +1217,14 @@ def page_settings():
     st.markdown("""
     ### 📝 Hướng dẫn cấu hình
     
-    Để sử dụng đầy đủ các tính năng, vui lòng cấu hình các dịch vụ sau:
+    Để sử dụng đầy đủ các tính năng, vui lòng cấu hình dịch vụ sau:
     
-    #### 1. Google Drive (Dùng Streamlit Secrets - Khuyên dùng)
+    #### Google Drive (Dùng Streamlit Secrets - Khuyên dùng)
     - Truy cập Google Cloud Console, tạo OAuth 2.0 Client ID (Desktop app).
     - Tải file JSON cấu hình.
     - Copy nội dung file JSON này dán vào biến **`GOOGLE_CLIENT_SECRETS_JSON`** trong phần **Secrets** của Streamlit Cloud (hoặc `.streamlit/secrets.toml` nếu chạy local).
     - Nhấn nút **"Kết nối Tài khoản Cá nhân"** ở trên.
     - Ứng dụng sẽ tự tạo thư mục `Ke_Toan_242` trên Drive của bạn.
-    
-    #### 2. Email (SMTP)
-    - Sử dụng Gmail hoặc SMTP server khác.
-    - Với Gmail: Bật "App Password" trong cài đặt bảo mật.
-    - Cấu hình SMTP server, port, username, password.
     
     ### 📄 Cấu hình Secrets (Ví dụ)
     
@@ -1261,11 +1243,6 @@ GOOGLE_CLIENT_SECRETS_JSON = '''
 '''
 
 DATABASE_URL="sqlite:///./data/expenses.db"
-SMTP_SERVER="smtp.gmail.com"
-SMTP_PORT=587
-SMTP_USERNAME="your_email@gmail.com"
-SMTP_PASSWORD="your_app_password"
-EMAIL_FROM="your_email@gmail.com"
     """, language="toml")
     
     st.markdown("---")
