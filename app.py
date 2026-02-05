@@ -547,7 +547,8 @@ def page_list_expenses():
         from sqlalchemy import or_
         query = query.filter(or_(*conditions))
 
-    expenses = query.order_by(Expense.created_at.desc()).all()
+    # 3. Sort by Start Date (Newest first)
+    expenses = query.order_by(Expense.start_date.desc()).all()
     
     if not expenses:
         st.info("📭 Không tìm thấy chi phí nào.")
@@ -556,117 +557,69 @@ def page_list_expenses():
     
     # 3. Display Expenses
     for expense in expenses:
-        with st.expander(f"💰 {expense.name} ({expense.account_number}) - {format_currency(expense.total_amount)}"):
-            # Detail view
-            c1, c2, c3 = st.columns(3)
+        combined_total = expense.total_amount + expense.already_allocated
+        
+        # Header with Name, Account, and Start Date
+        header_text = f"📅 {expense.start_date.strftime('%d/%m/%Y')} | {expense.name} ({expense.account_number})"
+        
+        with st.expander(header_text, expanded=False):
+            # --- TOP METRICS ROW ---
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                st.metric("Tổng giá trị", format_currency(combined_total))
+            with m2:
+                # Calculate total allocated including history
+                current_allocated = expense.already_allocated + sum(a.amount for a in expense.allocations if a.days_in_quarter > 0)
+                st.metric("Lũy kế đã PB", format_currency(current_allocated))
+            with m3:
+                st.metric("Còn lại", format_currency(combined_total - current_allocated))
+            with m4:
+                st.metric("Thời gian PB", f"{expense.allocation_months} tháng")
+
+            st.divider()
+
+            # --- MAIN INFO ROW ---
+            c1, c2 = st.columns([1, 1])
             with c1:
-                st.write(f"**Mã chứng từ:** {expense.document_code}")
-                st.write(f"**Ngày bắt đầu:** {expense.start_date.strftime('%d/%m/%Y')}")
-                st.write(f"**Ngày kết thúc:** {expense.end_date.strftime('%d/%m/%Y')}")
-            with c2:
-                st.write(f"**Số tháng:** {expense.allocation_months}")
-                st.write(f"**Tổng tiền:** {format_currency(expense.total_amount)}")
-                st.write(f"**Đã phân bổ (Cũ):** {format_currency(expense.already_allocated)}")
-            with c3:
+                st.caption("Thông tin chung")
+                st.markdown(f"**Ngày bắt đầu:** {expense.start_date.strftime('%d/%m/%Y')}")
+                st.markdown(f"**Ngày kết thúc:** {expense.end_date.strftime('%d/%m/%Y')}")
+                st.markdown(f"**Mã phụ:** {expense.sub_code}")
                 if expense.tags:
-                    st.write(f"**Tags:** {expense.tags}")
-                if expense.note:
-                    st.info(f"**Ghi chú:** {expense.note}")
-            
-            st.divider()
-            
-            # --- DOCUMENT MANAGEMENT ---
-            st.markdown("##### 📂 Chứng từ đính kèm")
-            
-            # List existing documents
-            if expense.documents:
-                for doc in expense.documents:
-                    col_d1, col_d2 = st.columns([4, 1])
-                    with col_d1:
-                        st.write(f"📎 [{doc.filename}]({doc.drive_url})")
-                    with col_d2:
-                        if st.button("🗑️", key=f"del_doc_{doc.id}"):
-                            # Delete document logic
-                            if drive_service.is_configured() and doc.drive_file_id:
-                                if drive_service.delete_file(doc.drive_file_id):
-                                    db.delete(doc)
-                                    db.commit()
-                                    st.success("Đã xóa file!")
-                                    st.rerun()
-                                else:
-                                    st.error("Lỗi khi xóa file trên Drive")
-                            else:
-                                db.delete(doc)
-                                db.commit()
-                                st.success("Đã xóa file khỏi DB.")
-                                st.rerun()
-            else:
-                st.caption("Chưa có chứng từ.")
-            
-            # Upload new document
-            with st.form(key=f"add_doc_form_{expense.id}", clear_on_submit=True):
-                new_files = st.file_uploader("Thêm tài liệu mới", accept_multiple_files=True, key=f"uploader_{expense.id}")
-                submit_upload = st.form_submit_button("Tải lên")
+                    st.markdown(f"**Tags:** {expense.tags}")
                 
-                if submit_upload and new_files:
-                    if not drive_service.is_configured():
-                        st.error("Chưa kết nối Google Drive!")
-                    else:
-                        uploaded_count = 0
-                        for u_file in new_files:
-                            content = u_file.getvalue()
-                            success, f_id, link = drive_service.upload_file(
-                                file_content=content,
-                                filename=u_file.name,
-                                mime_type=u_file.type
-                            )
-                            if success:
-                                new_doc = Document(
-                                    expense_id=expense.id,
-                                    filename=u_file.name,
-                                    drive_url=link,
-                                    drive_file_id=f_id
-                                )
-                                db.add(new_doc)
-                                uploaded_count += 1
-                        
-                        db.commit()
-                        if uploaded_count > 0:
-                            st.success(f"Đã thêm {uploaded_count} tài liệu.")
-                            st.rerun()
+            with c2:
+                st.caption("Chứng từ & Ghi chú")
+                # Editable Document Code
+                new_doc_code = st.text_input("Số chứng từ", value=expense.document_code or "", key=f"doc_code_{expense.id}")
+                if new_doc_code != (expense.document_code or ""):
+                    expense.document_code = new_doc_code
+                    db.commit()
+                    st.toast("Đã cập nhật số chứng từ!")
+                
+                if expense.note:
+                    st.info(f"{expense.note}")
 
-            st.divider()
-
-            # --- ALLOCATION SCHEDULE PREVIEW ---
+            # --- ALLOCATION SCHEDULE (Moved Up) ---
             st.markdown("##### 📅 Kế hoạch phân bổ")
             
-            # Prepare data for easy viewing - Reverting to simpler structure
+            # Prepare data logic 
             schedule_data = []
-            
-            # Sort allocations by date to ensure correct running total calculation
             sorted_allocs = sorted(expense.allocations, key=lambda x: (x.year, x.quarter))
-            
-            # Initial running total starts with historical allocated amount
             running_accumulated = expense.already_allocated
             total_expense_val = expense.total_amount + expense.already_allocated
             
             for alloc in sorted_allocs:
-                # Update running totals
                 alloc_amount = int(round(alloc.amount))
-                
-                # IMPORTANT: If dummy allocation (days=0), don't add to accumulated 
-                # because we started with expense.already_allocated
                 if alloc.days_in_quarter > 0:
                     running_accumulated += alloc_amount
-                
                 remaining_val = total_expense_val - running_accumulated
                 
-                # Combined Quarter/Year for simpler view
                 q_label = f"Q{alloc.quarter}/{alloc.year}" if alloc.quarter > 0 else "QK (Quá khứ)"
                 
                 schedule_data.append({
                     "Quý/Năm": q_label,
-                    "Số tiền": alloc_amount, # Force int
+                    "Số tiền": alloc_amount, 
                     "Lũy kế đã PB": int(running_accumulated),
                     "Còn lại chưa PB": int(remaining_val),
                     "Ngày BĐ": alloc.start_date.strftime("%d/%m/%Y"),
@@ -675,8 +628,6 @@ def page_list_expenses():
                 })
             
             df_schedule = pd.DataFrame(schedule_data)
-            
-            # Display with simple number formatting (no 'đ' symbol)
             st.dataframe(
                 df_schedule,
                 use_container_width=True,
@@ -687,42 +638,68 @@ def page_list_expenses():
                     "Còn lại chưa PB": st.column_config.NumberColumn(format=None)
                 }
             )
-            
-            # Actions
-            col_a1, col_a2 = st.columns(2)
-            with col_a1:
-                if st.button("📤 Xuất Excel", key=f"export_{expense.id}"):
-                        # Export logic matching displayed table
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            # Export the exact dataframe user sees
-                        df_schedule.to_excel(writer, sheet_name='Ke_Hoach_Phan_Bo', index=False)
-                        
-                        # Add Info Sheet
-                        info_df = pd.DataFrame([{
-                            'Tên': expense.name,
-                            'Mã TK': expense.account_number,
-                            'Tổng tiền': expense.total_amount,
-                            'Bắt đầu': expense.start_date,
-                            'Kết thúc': expense.end_date
-                        }])
-                        info_df.to_excel(writer, sheet_name='Thong_Tin_Chung', index=False)
-                    
-                    st.download_button(
-                        label="⬇️ Tải file",
-                        data=buffer.getvalue(),
-                        file_name=f"expense_{expense.document_code}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"dl_{expense.id}"
-                    )
-            
-            with col_a2:
-                if st.button("🗑️ Xóa Khoản mục", key=f"delete_{expense.id}", type="primary"):
-                    db.delete(expense)
-                    db.commit()
-                    st.success("✅ Đã xóa chi phí")
-                    st.rerun()
-    
+
+            # --- DOCUMENT MANAGEMENT (Collapsible) ---
+            with st.expander("📂 Quản lý chứng từ đính kèm & Thao tác khác"):
+                # Documents
+                if expense.documents:
+                    for doc in expense.documents:
+                        cd1, cd2 = st.columns([4, 1])
+                        with cd1:
+                            st.write(f"📎 [{doc.filename}]({doc.drive_url})")
+                        with cd2:
+                            if st.button("🗑️", key=f"del_doc_{doc.id}"):
+                                if drive_service.is_configured() and doc.drive_file_id:
+                                    if drive_service.delete_file(doc.drive_file_id):
+                                        db.delete(doc)
+                                        db.commit()
+                                        st.rerun()
+                                else:
+                                    db.delete(doc)
+                                    db.commit()
+                                    st.rerun()
+                else:
+                    st.caption("Chưa có chứng từ.")
+
+                # Upload
+                with st.form(key=f"add_doc_form_{expense.id}", clear_on_submit=True):
+                    new_files = st.file_uploader("Thêm tài liệu", accept_multiple_files=True, key=f"uploader_{expense.id}")
+                    if st.form_submit_button("Tải lên") and new_files:
+                        if not drive_service.is_configured():
+                            st.error("Chưa nối Drive!")
+                        else:
+                            cnt = 0
+                            for u in new_files:
+                                succ, fid, lnk = drive_service.upload_file(u.getvalue(), u.name, u.type)
+                                if succ:
+                                    db.add(Document(expense_id=expense.id, filename=u.name, drive_url=lnk, drive_file_id=fid))
+                                    cnt += 1
+                            db.commit()
+                            if cnt: st.rerun()
+                
+                st.divider()
+                
+                # Bottom Actions
+                ac1, ac2 = st.columns(2)
+                with ac1:
+                    if st.button("📤 Xuất Excel Kế hoạch", key=f"export_{expense.id}"):
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            df_schedule.to_excel(writer, sheet_name='Ke_Hoach_Phan_Bo', index=False)
+                            pd.DataFrame([{
+                                'Tên': expense.name,
+                                'Mã TK': expense.account_number,
+                                'Tổng tiền': expense.total_amount
+                            }]).to_excel(writer, sheet_name='Thong_Tin', index=False)
+                        st.download_button("⬇️ Tải file", buffer.getvalue(), f"expense_{expense.id}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"dl_{expense.id}")
+                
+                with ac2:
+                     if st.button("🗑️ Xóa Khoản mục này", key=f"delete_{expense.id}", type="primary"):
+                        db.delete(expense)
+                        db.commit()
+                        st.success("Đã xóa!")
+                        st.rerun()
+
     db.close()
 
 
