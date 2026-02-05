@@ -1171,33 +1171,60 @@ def page_settings():
 
     with col_rs:
         if st.button("🔄 Khôi phục từ Drive (Restore)", type="secondary", use_container_width=True):
-             if not drive_service.is_configured():
+            if not drive_service.is_configured():
                 st.error("Vui lòng kết nối Google Drive trước.")
-             else:
-                # This warning is just visual, the actual restore logic is below it.
-                # Streamlit buttons trigger a rerun, so the warning will show, then the spinner.
-                st.warning("⚠️ Cảnh báo: Dữ liệu hiện tại trên App sẽ bị ghi đè bởi bản backup từ Drive. Bạn có chắc chắn không?")
-                    
-                with st.spinner("Đang tìm và tải bản backup mới nhất..."):
-                    # Find backup file
-                    folder_id = drive_service.get_folder_id()
-                    if folder_id:
-                        query = f"name = 'expenses.db' and '{folder_id}' in parents and trashed = false"
-                        files = drive_service.list_files(query)
-                        if files:
-                            file_id = files[0]['id']
-                            updated_time = files[0]['modifiedTime']
-                            db_path = settings.database_url.replace("sqlite:///", "")
-                            
-                            if drive_service.download_file(file_id, db_path):
-                                st.success(f"✅ Đã khôi phục thành công bản backup ngày {updated_time}")
-                                st.info("Vui lòng tải lại trang để thấy dữ liệu mới.")
+            else:
+                st.session_state['show_restore_confirm'] = True
+        
+        if st.session_state.get('show_restore_confirm'):
+            st.divider()
+            st.warning("⚠️ CẢNH BÁO QUAN TRỌNG: Hành động này sẽ thay thế toàn bộ dữ liệu hiện tại bằng bản backup từ Google Drive. Dữ liệu chưa lưu sẽ bị mất vĩnh viễn!")
+            
+            with st.form("restore_confirm_form"):
+                st.write("Để tiếp tục, vui lòng nhập mật khẩu quản trị:")
+                restore_password = st.text_input("Mật khẩu xác nhận:", type="password")
+                
+                col_confirm, col_cancel = st.columns(2)
+                with col_confirm:
+                    submitted_restore = st.form_submit_button("✅ ĐỒNG Ý KHÔI PHỤC", type="primary", use_container_width=True)
+                with col_cancel:
+                    submitted_cancel = st.form_submit_button("❌ Hủy bỏ", use_container_width=True)
+                
+                if submitted_cancel:
+                    st.session_state['show_restore_confirm'] = False
+                    st.rerun()
+
+                if submitted_restore:
+                    if restore_password == "tckt123":
+                        with st.spinner("Đang tìm và tải bản backup mới nhất..."):
+                            # Find backup file
+                            folder_id = drive_service.get_folder_id()
+                            if folder_id:
+                                try:
+                                    query = f"name = 'expenses.db' and '{folder_id}' in parents and trashed = false"
+                                    files = drive_service.list_files(query)
+                                    if files:
+                                        file_id = files[0]['id']
+                                        updated_time = files[0]['modifiedTime']
+                                        db_path = settings.database_url.replace("sqlite:///", "")
+                                        
+                                        if drive_service.download_file(file_id, db_path):
+                                            st.success(f"✅ Đã khôi phục thành công bản backup ngày {updated_time}")
+                                            st.session_state['show_restore_confirm'] = False
+                                            st.info("Hệ thống sẽ tự tải lại trong giây lát...")
+                                            import time
+                                            time.sleep(2)
+                                            st.rerun()
+                                        else:
+                                            st.error("Không thể tải file về.")
+                                    else:
+                                        st.error("Không tìm thấy file `expenses.db` nào trên Drive (trong thư mục Ke_Toan_242).")
+                                except Exception as e:
+                                    st.error(f"Lỗi khôi phục: {str(e)}")
                             else:
-                                st.error("Không thể tải file về.")
-                        else:
-                            st.error("Không tìm thấy file `expenses.db` nào trên Drive (trong thư mục Ke_Toan_242).")
+                                st.error("Chưa xác định được thư mục lưu trữ.")
                     else:
-                        st.error("Chưa xác định được thư mục lưu trữ.")
+                        st.error("❌ Mật khẩu không chính xác! Hủy bỏ khôi phục.")
 
     st.markdown("---")
     st.markdown("""
