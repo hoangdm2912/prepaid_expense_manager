@@ -813,8 +813,7 @@ def page_allocation_schedule():
                                     "Tổng Gốc": st.column_config.NumberColumn(format="%.0f"),
                                     "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%.0f"),
                                     "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
-                                },
-                                key="pivot_table_view" # Stable Key
+                                }
                             )
                         else:
                             st.warning("Vui lòng chọn tiêu chí nhóm hợp lệ.")
@@ -836,8 +835,7 @@ def page_allocation_schedule():
                     "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
                 },
                 use_container_width=True,
-                hide_index=True,
-                key="detail_report_table" # Stable Key
+                hide_index=True
             )
             
             col_exp1, _ = st.columns([1, 4])
@@ -947,8 +945,7 @@ def page_allocation_schedule():
                 hide_index=True,
                 column_config={
                     "Số tiền": st.column_config.NumberColumn(format="%d")
-                },
-                key="allocation_schedule_table" # Stable key
+                }
             )
             
             # Export all button
