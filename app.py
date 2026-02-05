@@ -795,33 +795,51 @@ def page_allocation_schedule():
                 
                 df_report = pd.DataFrame(report_data)
                 
-                # Ensure numeric columns are actually numeric
+                # Ensure numeric columns and fill NA
                 numeric_cols = ["Tổng Gốc", "Đã Phân Bổ (Lũy kế)", "Số Dư Cuối Kỳ"]
                 for col in numeric_cols:
                     df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
+                
+                # Calculate Totals
+                total_row = {
+                    "Tên khoản mục": "TỔNG CỘNG",
+                    "Tài khoản": "",
+                    "Ngắn/Dài hạn (Mã 999x)": "",
+                    "Tags": "",
+                    "Mã Chứng từ": "",
+                    "Ghi chú": ""
+                }
+                for col in numeric_cols:
+                    total_row[col] = df_report[col].sum()
+                
+                # Append total row for Detailed View
+                df_detail_view = pd.concat([df_report, pd.DataFrame([total_row])], ignore_index=True)
 
                 # --- PIVOT VIEW ---
                 if group_by:
                     st.markdown("### 🧬 Báo cáo Tổng hợp (Pivot)")
                     try:
-                        # Check if df_report is not empty
                         if not df_report.empty:
-                            # Ensure grouping columns exist
                             valid_group_by = [col for col in group_by if col in df_report.columns]
                             
                             if valid_group_by:
                                 pivot_df = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
                                 
-                                # Use column_config for formatting instead of manual string conversion
+                                # Calculate Pivot Total
+                                pivot_total = {col: "" for col in pivot_df.columns}
+                                pivot_total[pivot_df.columns[0]] = "TỔNG CỘNG" # Set label on first group col
+                                for col in numeric_cols:
+                                    pivot_total[col] = pivot_df[col].sum()
+                                
+                                pivot_df = pd.concat([pivot_df, pd.DataFrame([pivot_total])], ignore_index=True)
+                                
                                 st.dataframe(
                                     pivot_df,
                                     use_container_width=True,
                                     column_config={
-                                        "Tổng Gốc": st.column_config.NumberColumn(format="%.0f"),
-                                        "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%.0f"),
-                                        "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
+                                        col: st.column_config.NumberColumn(format=None) for col in numeric_cols
                                     },
-                                    height=400 # Fix height to reduce flicker
+                                    height=400
                                 )
                             else:
                                 st.warning("Vui lòng chọn tiêu chí nhóm hợp lệ.")
@@ -834,33 +852,33 @@ def page_allocation_schedule():
                 # --- DETAILED VIEW ---
                 st.markdown("### 📄 Chi tiết Số Dư")
                 
-                # Apply column formatting
                 st.dataframe(
-                    df_report,
+                    df_detail_view,
                     column_config={
-                        "Tổng Gốc": st.column_config.NumberColumn(format="%.0f"),
-                        "Đã Phân Bổ (Lũy kế)": st.column_config.NumberColumn(format="%.0f"),
-                        "Số Dư Cuối Kỳ": st.column_config.NumberColumn(format="%.0f"),
+                         # Ensure numbers are displayed nicely (Streamlit default for int usually adds commas)
+                        col: st.column_config.NumberColumn(format=None) for col in numeric_cols
                     },
                     use_container_width=True,
                     hide_index=True,
-                    height=500 # Fix height to reduce flicker
+                    height=500
                 )
                 
                 col_exp1, _ = st.columns([1, 4])
                 with col_exp1:
-                     # Simplified Export
                      if st.button("📥 Xuất Báo cáo Excel", key="btn_export_tab1"):
                          import io
                          output_path = f"data/bao_cao_{report_date.strftime('%Y%m%d')}.xlsx"
                          os.makedirs("data", exist_ok=True)
                          
                          with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                             df_report.to_excel(writer, sheet_name='Bao_Cao_Chi_Tiet', index=False)
+                             df_detail_view.to_excel(writer, sheet_name='Bao_Cao_Chi_Tiet', index=False)
                              if group_by and not df_report.empty:
                                  try:
-                                    pivot_df = df_report.groupby(group_by)[numeric_cols].sum().reset_index()
-                                    pivot_df.to_excel(writer, sheet_name='Tong_Hop_Pivot', index=False)
+                                     # Re-calc pivot for export to be safe
+                                    valid_group_by = [col for col in group_by if col in df_report.columns]
+                                    if valid_group_by:
+                                        p_exp = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
+                                        p_exp.to_excel(writer, sheet_name='Tong_Hop_Pivot', index=False)
                                  except:
                                      pass
                          
@@ -919,17 +937,18 @@ def page_allocation_schedule():
             # Create summary table (Old Logic)
             summary_data = []
             for alloc in allocations:
-                # Skip historical markers (period 0) if they pollute the view?
-                # User wants "Detailed Schedule". Historical lumps usually don't have Year/Quarter (set to 0/0).
-                # If Year/Quarter filter is "All", they might show up.
-                # Let's include them but mark them.
+                # Format Quarter: Just "Qx" or "QK"
+                q_str = f"Q{alloc.quarter}" if alloc.quarter > 0 else "QK"
                 
+                # Format Year: Convert to string to avoid commas
+                y_str = str(alloc.year) if alloc.year > 0 else ""
+
                 summary_data.append({
                     'Khoản mục': alloc.expense.name,
                     'Số TK': alloc.expense.account_number,
                     'Mã phụ': alloc.expense.sub_code,
-                    'Quý': format_quarter(alloc.quarter, alloc.year) if alloc.days_in_quarter > 0 else f"QK ({alloc.amount:,.0f})",
-                    'Năm': alloc.year if alloc.year > 0 else "Quá Khứ",
+                    'Quý': q_str,
+                    'Năm': y_str,
                     'Ngày BĐ': alloc.start_date.strftime("%d/%m/%Y"),
                     'Ngày KT': alloc.end_date.strftime("%d/%m/%Y"),
                     'Số ngày': alloc.days_in_quarter,
@@ -955,14 +974,13 @@ def page_allocation_schedule():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Số tiền": st.column_config.NumberColumn(format="%d")
+                    "Số tiền": st.column_config.NumberColumn(format=None) # Default to int with commas
                 }
             )
             
             # Export all button
             if st.button("📥 Xuất toàn bộ ra Excel (Tab này)", use_container_width=True, key="btn_export_tab2"):
-                # Use existing export service or simplified one
-                # ExportService logic might need DB session
+                import io
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_sched.to_excel(writer, sheet_name='Phan_Bo_Chi_Tiet', index=False)
