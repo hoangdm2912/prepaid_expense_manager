@@ -24,6 +24,8 @@ class Expense(Base):
     allocation_months = Column(Integer, nullable=True)  # Calculated from dates, kept for compatibility
     already_allocated = Column(Float, default=0.0)
     past_quarter_year = Column(String(20), nullable=True)
+    tags = Column(String(255), nullable=True)  # Comma separated tags
+    note = Column(Text, nullable=True)  # User notes
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     

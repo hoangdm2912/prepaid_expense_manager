@@ -24,7 +24,9 @@ class ImportService:
             'Ngày bắt đầu': ['01/01/2024', '15/02/2024'],
             'Ngày kết thúc': ['31/12/2024', '14/02/2025'],
             'Giá trị đã phân bổ': [0, 5000000],
-            'Quý-Năm Quá Khứ': ['', 'Q1/2024']
+            'Quý-Năm Quá Khứ': ['', 'Q1/2024'],
+            'Tags/Nhãn': ['IT, Software', 'HR'],
+            'Ghi chú': ['', 'Lưu ý quan trọng']
         }
         
         return pd.DataFrame(template_data)
@@ -110,6 +112,11 @@ class ImportService:
             if end_date.day >= start_date.day:
                 allocation_months += 1
             
+            # Clean up tags
+            tags = str(row.get('Tags/Nhãn', '')).strip() if pd.notna(row.get('Tags/Nhãn')) else None
+            note = str(row.get('Ghi chú', '')).strip() if pd.notna(row.get('Ghi chú')) else None
+
+            
             expense = {
                 'account_number': str(row['Số tài khoản']).strip(),
                 'name': str(row['Tên khoản mục']).strip(),
@@ -120,7 +127,9 @@ class ImportService:
                 'sub_code': str(row.get('Mã chi phí phụ', '9995')).strip(),
                 'allocation_months': max(1, allocation_months),
                 'already_allocated': float(row.get('Giá trị đã phân bổ', 0)) if pd.notna(row.get('Giá trị đã phân bổ')) else 0,
-                'past_quarter_year': str(row.get('Quý-Năm Quá Khứ', '')).strip() if pd.notna(row.get('Quý-Năm Quá Khứ')) else None
+                'past_quarter_year': str(row.get('Quý-Năm Quá Khứ', '')).strip() if pd.notna(row.get('Quý-Năm Quá Khứ')) else None,
+                'tags': tags,
+                'note': note
             }
             
             expenses.append(expense)
@@ -150,6 +159,10 @@ class ImportService:
                 template_df['Giá trị đã phân bổ'] = [0, 0]
             if 'Quý-Năm Quá Khứ' not in template_df.columns:
                 template_df['Quý-Năm Quá Khứ'] = ['', '']
+            if 'Tags/Nhãn' not in template_df.columns:
+                template_df['Tags/Nhãn'] = ['', '']
+            if 'Ghi chú' not in template_df.columns:
+                template_df['Ghi chú'] = ['', '']
 
             buffer = BytesIO() if output_path is None else output_path
             

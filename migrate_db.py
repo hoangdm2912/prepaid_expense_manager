@@ -55,6 +55,19 @@ def migrate_database():
             cursor.execute("ALTER TABLE expenses ADD COLUMN past_quarter_year VARCHAR(20)")
             print("[OK] Added past_quarter_year column")
         
+
+        # Add tags if it doesn't exist
+        if 'tags' not in columns:
+            print("Adding tags column...")
+            cursor.execute("ALTER TABLE expenses ADD COLUMN tags VARCHAR(255)")
+            print("[OK] Added tags column")
+            
+        # Add note if it doesn't exist
+        if 'note' not in columns:
+            print("Adding note column...")
+            cursor.execute("ALTER TABLE expenses ADD COLUMN note TEXT")
+            print("[OK] Added note column")
+            
         # Make allocation_months nullable if needed
         print("Checking allocation_months column...")
         
