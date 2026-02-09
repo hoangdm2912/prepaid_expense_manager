@@ -1,0 +1,41 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    # Chạy mỗi 6 tiếng (0:00, 6:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Cho phép chạy thủ công
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          echo "Pinging Streamlit app to keep it alive..."
+          
+          # Thay YOUR_APP_URL bằng URL thực tế của ứng dụng Streamlit
+          APP_URL="${{ secrets.STREAMLIT_APP_URL }}"
+          
+          if [ -z "$APP_URL" ]; then
+            echo "⚠️ STREAMLIT_APP_URL secret chưa được thiết lập!"
+            echo "Vui lòng thêm URL ứng dụng vào GitHub Secrets"
+            exit 1
+          fi
+          
+          # Gửi request đến ứng dụng
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L "$APP_URL")
+          
+          echo "Response code: $RESPONSE"
+          
+          if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 301 ] || [ "$RESPONSE" -eq 302 ]; then
+            echo "✅ App is alive and responding!"
+          else
+            echo "⚠️ App returned unexpected status code: $RESPONSE"
+            echo "App might be sleeping or having issues"
+          fi
+          
+      - name: Log timestamp
+        run: |
+          echo "Last ping: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
