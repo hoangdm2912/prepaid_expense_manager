@@ -13,9 +13,10 @@ jobs:
     steps:
       - name: Ping Streamlit App
         run: |
+          set +e  # Không thoát khi có lỗi
           echo "Pinging Streamlit app to keep it alive..."
           
-          # Thay YOUR_APP_URL bằng URL thực tế của ứng dụng Streamlit
+          # Lấy URL từ secrets
           APP_URL="${{ secrets.STREAMLIT_APP_URL }}"
           
           if [ -z "$APP_URL" ]; then
@@ -24,16 +25,25 @@ jobs:
             exit 1
           fi
           
-          # Gửi request đến ứng dụng
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L "$APP_URL")
+          echo "Target URL: $APP_URL"
+          
+          # Gửi request đến ứng dụng với timeout 30s
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 30 "$APP_URL" || echo "000")
           
           echo "Response code: $RESPONSE"
           
-          if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 301 ] || [ "$RESPONSE" -eq 302 ]; then
+          # Kiểm tra response code (dùng regex để tránh lỗi so sánh số)
+          if [[ "$RESPONSE" =~ ^(200|301|302)$ ]]; then
             echo "✅ App is alive and responding!"
+            exit 0
+          elif [[ "$RESPONSE" == "000" ]]; then
+            echo "⚠️ Failed to connect to app (timeout or network error)"
+            echo "This is normal if the app is sleeping. It should wake up now."
+            exit 0
           else
-            echo "⚠️ App returned unexpected status code: $RESPONSE"
-            echo "App might be sleeping or having issues"
+            echo "⚠️ App returned status code: $RESPONSE"
+            echo "App might be sleeping or having issues, but the ping should wake it up."
+            exit 0
           fi
           
       - name: Log timestamp
