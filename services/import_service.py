@@ -23,6 +23,7 @@ class ImportService:
             'Tổng tiền': [36000000, 24000000],
             'Ngày bắt đầu': ['01/01/2024', '15/02/2024'],
             'Ngày kết thúc': ['31/12/2024', '14/02/2025'],
+            'Segment (9995/9996)': ['9995', '9996'],
             'Giá trị đã phân bổ': [0, 5000000],
             'Quý-Năm Quá Khứ': ['', 'Q1/2024'],
             'Tags/Nhãn': ['IT, Software', 'HR'],
@@ -63,6 +64,11 @@ class ImportService:
             account = str(row['Số tài khoản'])
             if not account.startswith('242'):
                 errors.append(f"Dòng {row_num}: Số tài khoản phải bắt đầu bằng 242")
+            
+            # Check segment
+            segment = str(row.get('Segment (9995/9996)', '9995')).strip()
+            if segment not in ['9995', '9996']:
+                errors.append(f"Dòng {row_num}: Segment phải là 9995 hoặc 9996, giá trị hiện tại: '{segment}'")
             
             # Check name
             if pd.isna(row['Tên khoản mục']) or str(row['Tên khoản mục']).strip() == '':
@@ -124,7 +130,7 @@ class ImportService:
                 'total_amount': float(row['Tổng tiền']),
                 'start_date': start_date,
                 'end_date': end_date,
-                'sub_code': str(row.get('Mã chi phí phụ', '9995')).strip(),
+                'sub_code': str(row.get('Segment (9995/9996)', '9995')).strip(),
                 'allocation_months': max(1, allocation_months),
                 'already_allocated': float(row.get('Giá trị đã phân bổ', 0)) if pd.notna(row.get('Giá trị đã phân bổ')) else 0,
                 'past_quarter_year': str(row.get('Quý-Năm Quá Khứ', '')).strip() if pd.notna(row.get('Quý-Năm Quá Khứ')) else None,
@@ -150,20 +156,6 @@ class ImportService:
         try:
             template_df = ImportService.create_import_template()
             
-            # Additional columns for template to match parse_import_data expectations
-            if 'Mã chi phí phụ' not in template_df.columns:
-                template_df['Mã chi phí phụ'] = ['9995', '9996']
-            
-            # Ensure new columns are present
-            if 'Giá trị đã phân bổ' not in template_df.columns:
-                template_df['Giá trị đã phân bổ'] = [0, 0]
-            if 'Quý-Năm Quá Khứ' not in template_df.columns:
-                template_df['Quý-Năm Quá Khứ'] = ['', '']
-            if 'Tags/Nhãn' not in template_df.columns:
-                template_df['Tags/Nhãn'] = ['', '']
-            if 'Ghi chú' not in template_df.columns:
-                template_df['Ghi chú'] = ['', '']
-
             buffer = BytesIO() if output_path is None else output_path
             
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -173,13 +165,16 @@ class ImportService:
                 instructions = pd.DataFrame({
                     'Hướng dẫn sử dụng': [
                         '1. Điền thông tin chi phí vào sheet "Template"',
-                        '2. Số tài khoản phải bắt đầu bằng 242',
+                        '2. Số tài khoản phải bắt đầu bằng 242 (ví dụ: 242001)',
                         '3. Tổng tiền phải là số dương',
                         '4. Ngày theo định dạng DD/MM/YYYY (ví dụ: 01/01/2024)',
                         '5. Ngày kết thúc phải sau ngày bắt đầu',
-                        '6. Mã chứng từ là tùy chọn',
-                        '7. Mã chi phí phụ (9995 hoặc 9996) là tùy chọn, mặc định là 9995',
-                        '8. Sau khi điền xong, upload file vào ứng dụng'
+                        '6. Segment: 9995 (≤12 tháng) hoặc 9996 (>12 tháng)',
+                        '7. Nếu có dữ liệu phân bổ quá khứ, tính tổng thời gian từ quá khứ để chọn Segment',
+                        '8. Giá trị đã phân bổ: Nhập số tiền đã phân bổ trong quá khứ (nếu có)',
+                        '9. Quý-Năm Quá Khứ: Nhập kỳ phân bổ quá khứ (ví dụ: Q1/2024)',
+                        '10. Tags/Nhãn và Ghi chú là tùy chọn',
+                        '11. Sau khi điền xong, upload file vào ứng dụng'
                     ]
                 })
                 instructions.to_excel(writer, sheet_name='Hướng dẫn', index=False)
@@ -191,3 +186,4 @@ class ImportService:
         except Exception as e:
             print(f"Error exporting template: {str(e)}")
             return False if output_path else None
+

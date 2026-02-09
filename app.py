@@ -206,8 +206,14 @@ def page_create_expense():
             months = allocation_service.calculate_months_between_dates(start_date, end_date)
             suggested_sub_code = allocation_service.determine_sub_code(months)
             
-            sub_code = st.text_input("Segment Ngắn hạn/Dài hạn (*)", value=suggested_sub_code, disabled=True, help="Tự động chọn dựa trên thời gian phân bổ")
-            st.caption(f"Nhỏ hơn hoặc bằng 12 tháng -> 9995 | Lớn hơn 12 tháng -> 9996 (Hiện tại: {months} tháng -> {suggested_sub_code})")
+            sub_code = st.text_input(
+                "Segment Ngắn hạn/Dài hạn (*)", 
+                value=suggested_sub_code, 
+                max_chars=4,
+                help="Tự động gợi ý dựa trên thời gian. Có thể sửa thủ công nếu có dữ liệu phân bổ quá khứ."
+            )
+            st.caption(f"💡 Gợi ý: {months} tháng → {suggested_sub_code} | Quy tắc: ≤12 tháng=9995, >12 tháng=9996")
+            st.caption("⚠️ Nếu có phân bổ quá khứ, hãy tính tổng thời gian từ quá khứ để chọn segment phù hợp")
             
             tags = st.text_input("Tags / Nhãn", help="Ngăn cách bằng dấu phẩy (Ví dụ: IT, Phần mềm)")
             note = st.text_area("Ghi chú", height=100)
@@ -229,6 +235,11 @@ def page_create_expense():
             is_valid_acc, acc_error = validate_account_number(account_number)
             if not is_valid_acc:
                 st.error(f"❌ {acc_error}")
+                return
+            
+            # Validate segment code
+            if sub_code not in ['9995', '9996']:
+                st.error(f"❌ Segment phải là 9995 (Ngắn hạn) hoặc 9996 (Dài hạn). Giá trị hiện tại: '{sub_code}'")
                 return
             
             if end_date <= start_date:
