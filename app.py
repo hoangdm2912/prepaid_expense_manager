@@ -1167,51 +1167,86 @@ def page_settings():
             st.divider()
             st.warning("⚠️ CẢNH BÁO QUAN TRỌNG: Hành động này sẽ thay thế toàn bộ dữ liệu hiện tại bằng bản backup từ Google Drive. Dữ liệu chưa lưu sẽ bị mất vĩnh viễn!")
             
-            with st.form("restore_confirm_form"):
-                st.write("Để tiếp tục, vui lòng nhập mật khẩu quản trị:")
-                restore_password = st.text_input("Mật khẩu xác nhận:", type="password")
-                
-                col_confirm, col_cancel = st.columns(2)
-                with col_confirm:
-                    submitted_restore = st.form_submit_button("✅ ĐỒNG Ý KHÔI PHỤC", type="primary", use_container_width=True)
-                with col_cancel:
-                    submitted_cancel = st.form_submit_button("❌ Hủy bỏ", use_container_width=True)
-                
-                if submitted_cancel:
+            # Get list of available backups
+            with st.spinner("Đang tải danh sách phiên bản backup..."):
+                backups = drive_service.list_database_backups()
+            
+            if not backups:
+                st.error("Không tìm thấy file backup nào trên Drive.")
+                if st.button("❌ Đóng"):
                     st.session_state['show_restore_confirm'] = False
                     st.rerun()
+            else:
+                st.info(f"📦 Tìm thấy {len(backups)} phiên bản backup")
+                
+                # Display backup versions in a selectbox
+                backup_options = []
+                for backup in backups:
+                    name = backup['name']
+                    modified = backup.get('modifiedTime', 'N/A')
+                    # Parse timestamp from filename: expenses_20260209_100530.db
+                    try:
+                        from datetime import datetime
+                        timestamp_str = name.replace('expenses_', '').replace('.db', '')
+                        dt = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                        display_name = f"{dt.strftime('%d/%m/%Y %H:%M:%S')} - {name}"
+                    except:
+                        display_name = f"{modified} - {name}"
+                    
+                    backup_options.append({
+                        'display': display_name,
+                        'file_id': backup['id'],
+                        'name': name,
+                        'modified': modified
+                    })
+                
+                with st.form("restore_confirm_form"):
+                    st.write("**Chọn phiên bản để khôi phục:**")
+                    selected_idx = st.selectbox(
+                        "Phiên bản backup:",
+                        range(len(backup_options)),
+                        format_func=lambda i: backup_options[i]['display'],
+                        help="Chọn phiên bản backup bạn muốn khôi phục"
+                    )
+                    
+                    st.divider()
+                    st.write("**Để tiếp tục, vui lòng nhập mật khẩu khôi phục:**")
+                    st.caption("⚠️ Mật khẩu khôi phục khác với mật khẩu đăng nhập để tránh thao tác nhầm lẫn")
+                    restore_password = st.text_input("Mật khẩu khôi phục:", type="password")
+                    
+                    col_confirm, col_cancel = st.columns(2)
+                    with col_confirm:
+                        submitted_restore = st.form_submit_button("✅ ĐỒNG Ý KHÔI PHỤC", type="primary", use_container_width=True)
+                    with col_cancel:
+                        submitted_cancel = st.form_submit_button("❌ Hủy bỏ", use_container_width=True)
+                    
+                    if submitted_cancel:
+                        st.session_state['show_restore_confirm'] = False
+                        st.rerun()
 
-                if submitted_restore:
-                    if restore_password == "tckt123":
-                        with st.spinner("Đang tìm và tải bản backup mới nhất..."):
-                            # Find backup file
-                            folder_id = drive_service.get_folder_id()
-                            if folder_id:
+                    if submitted_restore:
+                        if restore_password == "tckt1234":
+                            selected_backup = backup_options[selected_idx]
+                            
+                            with st.spinner(f"Đang khôi phục bản backup: {selected_backup['name']}..."):
                                 try:
-                                    query = f"name = 'expenses.db' and '{folder_id}' in parents and trashed = false"
-                                    files = drive_service.list_files(query)
-                                    if files:
-                                        file_id = files[0]['id']
-                                        updated_time = files[0]['modifiedTime']
-                                        db_path = settings.database_url.replace("sqlite:///", "")
-                                        
-                                        if drive_service.download_file(file_id, db_path):
-                                            st.success(f"✅ Đã khôi phục thành công bản backup ngày {updated_time}")
-                                            st.session_state['show_restore_confirm'] = False
-                                            st.info("Hệ thống sẽ tự tải lại trong giây lát...")
-                                            import time
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error("Không thể tải file về.")
+                                    file_id = selected_backup['file_id']
+                                    db_path = settings.database_url.replace("sqlite:///", "")
+                                    
+                                    if drive_service.download_file(file_id, db_path):
+                                        st.success(f"✅ Đã khôi phục thành công bản backup: {selected_backup['display']}")
+                                        st.session_state['show_restore_confirm'] = False
+                                        st.info("Hệ thống sẽ tự tải lại trong giây lát...")
+                                        import time
+                                        time.sleep(2)
+                                        st.rerun()
                                     else:
-                                        st.error("Không tìm thấy file `expenses.db` nào trên Drive (trong thư mục Ke_Toan_242).")
+                                        st.error("Không thể tải file về.")
                                 except Exception as e:
                                     st.error(f"Lỗi khôi phục: {str(e)}")
-                            else:
-                                st.error("Chưa xác định được thư mục lưu trữ.")
-                    else:
-                        st.error("❌ Mật khẩu không chính xác! Hủy bỏ khôi phục.")
+                        else:
+                            st.error("❌ Mật khẩu khôi phục không chính xác! Hủy bỏ khôi phục.")
+
 
     st.markdown("---")
     st.markdown("""

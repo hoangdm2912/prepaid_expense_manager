@@ -304,13 +304,15 @@ class GoogleDriveService:
 
     def upload_database(self, local_path: str, filename: str = "expenses.db") -> Tuple[bool, str]:
         """
-        Upload database file to Google Drive.
-        Overwrites existing file if exists in the folder to avoid duplicates.
+        Upload database file to Google Drive with timestamp.
+        Keeps only the 10 most recent backups.
         """
         if not self.service:
             return False, "Google Drive service not initialized"
             
         try:
+            from datetime import datetime
+            
             # Re-ensure folder id before upload
             if not self.folder_id:
                 self._ensure_folder_exists()
@@ -318,37 +320,81 @@ class GoogleDriveService:
             if not self.folder_id:
                  return False, "Could not determine target folder"
 
-            # Check if file exists in the folder
-            query = f"name = '{filename}' and '{self.folder_id}' in parents and trashed = false"
-            existing_files = self.list_files(query)
+            # Generate timestamped filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamped_filename = f"expenses_{timestamp}.db"
             
             file_metadata = {
-                'name': filename,
+                'name': timestamped_filename,
                 'parents': [self.folder_id]
             }
             
             media = MediaFileUpload(local_path, mimetype='application/x-sqlite3', resumable=True)
             
-            if existing_files:
-                # Update existing file
-                file_id = existing_files[0]['id']
-                # When updating, we don't supply 'parents'
-                update_metadata = {'name': filename} 
-                self.service.files().update(
-                    fileId=file_id,
-                    body=update_metadata,
-                    media_body=media
-                ).execute()
-                return True, "Đã cập nhật file database thành công!"
-            else:
-                # Create new file
-                self.service.files().create(
-                    body=file_metadata,
-                    media_body=media,
-                    fields='id'
-                ).execute()
-                return True, "Đã tạo backup file database mới thành công!"
-                
+            # Create new backup file with timestamp
+            self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+            
+            # Cleanup old backups - keep only 10 most recent
+            self._cleanup_old_backups(max_versions=10)
+            
+            return True, f"Đã tạo backup thành công: {timestamped_filename}"
+            
         except Exception as e:
             return False, f"Upload error: {str(e)}"
+    
+    def _cleanup_old_backups(self, max_versions: int = 10):
+        """
+        Delete old backup files, keeping only the most recent max_versions.
+        """
+        try:
+            # Find all backup files
+            query = f"name contains 'expenses_' and name contains '.db' and '{self.folder_id}' in parents and trashed = false"
+            files = self.list_files(query)
+            
+            if len(files) <= max_versions:
+                return  # No cleanup needed
+            
+            # Sort by modified time (newest first)
+            sorted_files = sorted(files, key=lambda x: x.get('modifiedTime', ''), reverse=True)
+            
+            # Delete files beyond max_versions
+            files_to_delete = sorted_files[max_versions:]
+            for file in files_to_delete:
+                try:
+                    self.service.files().delete(fileId=file['id']).execute()
+                    print(f"Deleted old backup: {file['name']}")
+                except Exception as e:
+                    print(f"Failed to delete {file['name']}: {e}")
+                    
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+    
+    def list_database_backups(self):
+        """
+        List all database backup files sorted by date (newest first).
+        Returns list of dicts with: id, name, modifiedTime
+        """
+        try:
+            if not self.folder_id:
+                self._ensure_folder_exists()
+            
+            if not self.folder_id:
+                return []
+            
+            query = f"name contains 'expenses_' and name contains '.db' and '{self.folder_id}' in parents and trashed = false"
+            files = self.list_files(query)
+            
+            # Sort by modified time (newest first)
+            sorted_files = sorted(files, key=lambda x: x.get('modifiedTime', ''), reverse=True)
+            
+            return sorted_files
+            
+        except Exception as e:
+            print(f"Error listing backups: {e}")
+            return []
+
 
