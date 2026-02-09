@@ -206,8 +206,8 @@ def page_create_expense():
             months = allocation_service.calculate_months_between_dates(start_date, end_date)
             suggested_sub_code = allocation_service.determine_sub_code(months)
             
-            sub_code = st.text_input("Mã chi phí phụ (*)", value=suggested_sub_code, disabled=True, help="Tự động chọn dựa trên thời gian phân bổ")
-            st.caption(f"Thời gian phân bổ: {months} tháng -> {suggested_sub_code} ({'Ngắn hạn' if suggested_sub_code == '9995' else 'Dài hạn'})")
+            sub_code = st.text_input("Segment Ngắn hạn/Dài hạn (*)", value=suggested_sub_code, disabled=True, help="Tự động chọn dựa trên thời gian phân bổ")
+            st.caption(f"Nhỏ hơn hoặc bằng 12 tháng -> 9995 | Lớn hơn 12 tháng -> 9996 (Hiện tại: {months} tháng -> {suggested_sub_code})")
             
             tags = st.text_input("Tags / Nhãn", help="Ngăn cách bằng dấu phẩy (Ví dụ: IT, Phần mềm)")
             note = st.text_area("Ghi chú", height=100)
