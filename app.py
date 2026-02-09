@@ -221,7 +221,7 @@ def page_create_expense():
             uploaded_files = st.file_uploader(
                 "Tài liệu đính kèm", 
                 accept_multiple_files=True,
-                type=['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx']
+                type=['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar']
             )
         
         submitted = st.form_submit_button("Lưu Chi Phí")
@@ -675,14 +675,23 @@ def page_list_expenses():
 
                 # Upload
                 with st.form(key=f"add_doc_form_{expense.id}", clear_on_submit=True):
-                    new_files = st.file_uploader("Thêm tài liệu", accept_multiple_files=True, key=f"uploader_{expense.id}")
+                    new_files = st.file_uploader(
+                        "Thêm tài liệu", 
+                        accept_multiple_files=True, 
+                        type=['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'],
+                        key=f"uploader_{expense.id}"
+                    )
                     if st.form_submit_button("Tải lên") and new_files:
                         if not drive_service.is_configured():
                             st.error("Chưa nối Drive!")
                         else:
                             cnt = 0
                             for u in new_files:
-                                succ, fid, lnk = drive_service.upload_file(u.getvalue(), u.name, u.type)
+                                succ, fid, lnk = drive_service.upload_file(
+                                    file_content=u.getvalue(),
+                                    filename=u.name,
+                                    mime_type=u.type
+                                )
                                 if succ:
                                     db.add(Document(expense_id=expense.id, filename=u.name, drive_url=lnk, drive_file_id=fid))
                                     cnt += 1
