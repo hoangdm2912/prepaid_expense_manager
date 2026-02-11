@@ -34,20 +34,36 @@ import_service = ImportService()
 if drive_service.is_configured() and not os.path.exists("./data/expenses.db"):
     if settings.google_drive_folder_id:
         try:
-            print("Checking for remote database backup...")
-            query = f"name = 'expenses.db' and '{settings.google_drive_folder_id}' in parents and trashed = false"
-            files = drive_service.list_files(query)
-            if files:
-                file_id = files[0]['id']
-                print(f"Found remote database: {files[0]['modifiedTime']}")
-                # Ensure directory exists (redundant with storage service check but safe)
+            print("🔍 Checking for remote database backup...")
+            
+            # Find all backup files (new timestamped format)
+            backups = drive_service.list_database_backups()
+            
+            if backups:
+                # Get the most recent backup
+                latest_backup = backups[0]  # Already sorted by date (newest first)
+                file_id = latest_backup['id']
+                filename = latest_backup['name']
+                modified_time = latest_backup.get('modifiedTime', 'Unknown')
+                
+                print(f"📦 Found latest backup: {filename} (Modified: {modified_time})")
+                
+                # Ensure directory exists
                 os.makedirs("./data", exist_ok=True)
+                
+                # Download and restore
                 if drive_service.download_file(file_id, "./data/expenses.db"):
-                    print("Database restored from Drive successfully.")
+                    print(f"✅ Database restored successfully from: {filename}")
                 else:
-                    print("Failed to download database.")
+                    print("❌ Failed to download database.")
+            else:
+                print("⚠️ No backup files found on Drive. Starting with fresh database.")
+                
         except Exception as e:
-            print(f"Auto-restore failed: {e}")
+            print(f"❌ Auto-restore failed: {e}")
+            import traceback
+            traceback.print_exc()
+
 
 # Initialize database (after potential restore)
 init_db()
