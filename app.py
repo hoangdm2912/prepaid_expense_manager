@@ -606,26 +606,33 @@ def page_list_expenses():
             with c2:
                 st.caption("✏️ Thông tin bổ sung (Có thể sửa)")
                 
-                # Editable: Document Code
-                new_doc = st.text_input("Mã chứng từ", value=expense.document_code or "", key=f"d_{expense.id}")
-                if new_doc != (expense.document_code or ""):
-                    expense.document_code = new_doc
-                    db.commit()
-                    # st.toast("Đã cập nhật Mã chứng từ!")
+                # Dùng Form để tránh re-render/chớp nháy khi đang gõ
+                with st.form(key=f"edit_form_{expense.id}"):
+                    # Editable: Document Code
+                    new_doc = st.text_input("Mã chứng từ", value=expense.document_code or "", key=f"d_{expense.id}")
 
-                # Editable: Tags
-                new_tags = st.text_input("Tags (phân cách dấu phẩy)", value=expense.tags or "", key=f"t_{expense.id}")
-                if new_tags != (expense.tags or ""):
-                    expense.tags = new_tags
-                    db.commit()
-                    # st.toast("Đã cập nhật Tags!")
-                
-                # Editable: Note
-                new_note = st.text_area("Ghi chú", value=expense.note or "", height=68, key=f"n_{expense.id}")
-                if new_note != (expense.note or ""):
-                    expense.note = new_note
-                    db.commit()
-                    # st.toast("Đã cập nhật Ghi chú!")
+                    # Editable: Tags
+                    new_tags = st.text_input("Tags (phân cách dấu phẩy)", value=expense.tags or "", key=f"t_{expense.id}")
+                    
+                    # Editable: Note
+                    new_note = st.text_area("Ghi chú", value=expense.note or "", height=68, key=f"n_{expense.id}")
+                    
+                    save_btn = st.form_submit_button("💾 Lưu thay đổi", use_container_width=True)
+                    
+                    if save_btn:
+                        changed = False
+                        if new_doc != (expense.document_code or ""):
+                            expense.document_code = new_doc
+                            changed = True
+                        if new_tags != (expense.tags or ""):
+                            expense.tags = new_tags
+                            changed = True
+                        if new_note != (expense.note or ""):
+                            expense.note = new_note
+                            changed = True
+                        if changed:
+                            db.commit()
+                            st.toast("✅ Đã lưu thay đổi!", icon="✅")
 
             # --- ALLOCATION SCHEDULE (Moved Up) ---
             st.markdown("##### 📅 Kế hoạch phân bổ")

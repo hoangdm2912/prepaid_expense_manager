@@ -2,8 +2,8 @@ name: Keep Streamlit App Alive
 
 on:
   schedule:
-    # Chạy mỗi 6 tiếng (0:00, 6:00, 12:00, 18:00 UTC)
-    - cron: '0 */6 * * *'
+    # Chạy mỗi 30 phút để giữ app luôn thức (Streamlit ngủ sau ~5 phút không dùng)
+    - cron: '*/30 * * * *'
   workflow_dispatch: # Cho phép chạy thủ công
 
 jobs:
@@ -26,26 +26,42 @@ jobs:
           fi
           
           echo "Target URL: $APP_URL"
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           
-          # Gửi request đến ứng dụng với timeout 30s
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 30 "$APP_URL" || echo "000")
+          # Retry tối đa 3 lần, mỗi lần cách nhau 10 giây
+          for ATTEMPT in 1 2 3; do
+            echo "--- Attempt $ATTEMPT/3 ---"
+            
+            # Gửi request với User-Agent mô phỏng browser thực
+            # Streamlit Cloud đôi khi bỏ qua simple HEAD requests từ bot
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -L \
+              --max-time 60 \
+              --retry 2 \
+              --retry-delay 5 \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+              -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+              -H "Accept-Language: vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7" \
+              -H "Cache-Control: no-cache" \
+              "$APP_URL" || echo "000")
+            
+            echo "Response code: $RESPONSE"
+            
+            if [[ "$RESPONSE" =~ ^(200|301|302)$ ]]; then
+              echo "✅ App is alive and responding! (Attempt $ATTEMPT)"
+              break
+            elif [[ "$RESPONSE" == "000" ]]; then
+              echo "⚠️ Connection failed (timeout/network). App might be waking up..."
+              if [ $ATTEMPT -lt 3 ]; then
+                echo "Waiting 10s before retry..."
+                sleep 10
+              fi
+            else
+              echo "⚠️ Status: $RESPONSE. Retrying..."
+              if [ $ATTEMPT -lt 3 ]; then
+                sleep 10
+              fi
+            fi
+          done
           
-          echo "Response code: $RESPONSE"
-          
-          # Kiểm tra response code (dùng regex để tránh lỗi so sánh số)
-          if [[ "$RESPONSE" =~ ^(200|301|302)$ ]]; then
-            echo "✅ App is alive and responding!"
-            exit 0
-          elif [[ "$RESPONSE" == "000" ]]; then
-            echo "⚠️ Failed to connect to app (timeout or network error)"
-            echo "This is normal if the app is sleeping. It should wake up now."
-            exit 0
-          else
-            echo "⚠️ App returned status code: $RESPONSE"
-            echo "App might be sleeping or having issues, but the ping should wake it up."
-            exit 0
-          fi
-          
-      - name: Log timestamp
-        run: |
-          echo "Last ping: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "✅ Keep-alive ping completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
