@@ -24,6 +24,27 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- KEEP-ALIVE: Inject JS heartbeat vào browser ---
+# Cứ 4 phút (240000ms) browser tự ping app, giữ WebSocket session sống
+# Giải quyết tận gốc việc Streamlit sleep vì HTTP ping bên ngoài không đủ
+import streamlit.components.v1 as components
+components.html(
+    """
+    <script>
+    (function() {
+        var interval = 4 * 60 * 1000; // 4 phút
+        function keepAlive() {
+            fetch(window.location.href, { method: 'GET', cache: 'no-cache' })
+                .catch(function() {}); // Bỏ qua lỗi, chỉ cần duy trì activity
+        }
+        setInterval(keepAlive, interval);
+        console.log('[KeepAlive] Heartbeat started, interval: ' + (interval/1000) + 's');
+    })();
+    </script>
+    """,
+    height=0,
+)
+
 # Initialize services first (needed for auto-restore)
 drive_service = GoogleDriveService()
 allocation_service = AllocationService()
@@ -448,36 +469,28 @@ def page_bulk_import():
                             new_expense = Expense(
                                 account_number=expense_data['account_number'],
                                 name=expense_data['name'],
-                                document_code=expense_data['document_code'],
+                                document_code=expense_data.get('document_code'),
                                 total_amount=expense_data['total_amount'],
                                 start_date=expense_data['start_date'],
                                 end_date=expense_data['end_date'],
                                 sub_code=expense_data['sub_code'],
                                 allocation_months=expense_data['allocation_months'],
                                 already_allocated=expense_data.get('already_allocated', 0),
-                                past_quarter_year=expense_data.get('past_quarter_year')
+                                past_quarter_year=expense_data.get('past_quarter_year'),
+                                tags=expense_data.get('tags'),
+                                note=expense_data.get('note')
                             )
                             
-                            # Add historical allocation if exists
-                            if expense_data.get('already_allocated', 0) > 0:
-                                past_q = 0
-                                past_y = 0
-                                if expense_data.get('past_quarter_year') and "/" in expense_data['past_quarter_year']:
-                                    try:
-                                        q_part, y_part = expense_data['past_quarter_year'].split("/")
-                                        past_q = int(q_part.replace("Q", "").replace("q", ""))
-                                        past_y = int(y_part)
-                                    except:
-                                        pass
-                                
-                                if past_y > 0:
-                                    # Create historical record
-                                    # Use start_date as a placeholder for historical dates
+                            # Add historical allocations from past_periods list
+                            # (supports multiple past periods separated by ";" in XLSX)
+                            past_periods = expense_data.get('past_periods', [])
+                            for pp in past_periods:
+                                if pp.get('year', 0) > 0 and pp.get('amount', 0) >= 0:
                                     hist_alloc = Allocation(
-                                        quarter=past_q,
-                                        year=past_y,
-                                        amount=expense_data['already_allocated'],
-                                        days_in_quarter=0,  # Distinctive marker for historical
+                                        quarter=pp['quarter'],
+                                        year=pp['year'],
+                                        amount=pp['amount'],
+                                        days_in_quarter=0,  # Marker = phân bổ lịch sử
                                         start_date=expense_data['start_date'],
                                         end_date=expense_data['start_date']
                                     )

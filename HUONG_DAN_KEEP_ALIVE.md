@@ -1,121 +1,72 @@
-# Hướng dẫn thiết lập Keep-Alive cho Streamlit App
+# Hướng dẫn Chống Ngủ (Keep-Alive) cho Streamlit App
 
-## 🎯 Mục đích
-Tự động "đánh thức" ứng dụng Streamlit mỗi 6 tiếng để tránh chế độ ngủ, đảm bảo người dùng luôn truy cập được.
+## ⚠️ Hiểu đúng về Streamlit Sleep
 
-## 📋 Yêu cầu
-- Repository GitHub đã có code của ứng dụng
-- Ứng dụng đã deploy lên Streamlit Cloud
-- Có quyền admin trên repository GitHub
+**Streamlit Cloud Free Tier** sẽ đặt app vào chế độ ngủ sau **~5 phút không có tương tác từ browser**.
 
-## 🚀 Các bước thiết lập
+> **Quan trọng:** HTTP ping thông thường (curl, GitHub Actions) **KHÔNG** đủ để giữ app thức.  
+> Streamlit Cloud chỉ wake up khi có người dùng thực sự mở trình duyệt vào app.
 
-### Bước 1: Lấy URL của ứng dụng Streamlit
-1. Truy cập [Streamlit Cloud](https://share.streamlit.io/)
-2. Tìm ứng dụng của bạn
-3. Copy URL (dạng: `https://your-app-name.streamlit.app`)
+## 🥇 Giải pháp 1: UptimeRobot (Khuyến nghị - Miễn phí)
 
-### Bước 2: Thêm URL vào GitHub Secrets
-1. Truy cập repository GitHub của bạn
-2. Vào **Settings** > **Secrets and variables** > **Actions**
-3. Click **New repository secret**
+UptimeRobot giả lập browser ping, hiệu quả hơn curl thuần.
+
+### Các bước thiết lập:
+
+1. Tạo tài khoản miễn phí tại [uptimerobot.com](https://uptimerobot.com)
+2. Click **Add New Monitor**
+3. Chọn loại: **HTTP(s)**
 4. Điền:
-   - **Name**: `STREAMLIT_APP_URL`
-   - **Secret**: Paste URL ứng dụng Streamlit (ví dụ: `https://your-app-name.streamlit.app`)
-5. Click **Add secret**
+   - **Friendly Name**: `Prepaid Expense App`
+   - **URL**: URL Streamlit app của bạn (ví dụ: `https://your-app.streamlit.app`)
+   - **Monitoring Interval**: **5 minutes** ← quan trọng, phải ≤ 5 phút
+5. Click **Create Monitor**
 
-### Bước 3: Push code lên GitHub
-File workflow đã được tạo tại `.github/workflows/keep-alive.yml`
-
-```bash
-# Thêm file mới vào git
-git add .github/workflows/keep-alive.yml
-
-# Commit
-git commit -m "Add GitHub Actions workflow to keep Streamlit app alive"
-
-# Push lên GitHub
-git push origin main
-```
-
-### Bước 4: Kiểm tra workflow
-1. Truy cập repository GitHub
-2. Vào tab **Actions**
-3. Bạn sẽ thấy workflow "Keep Streamlit App Alive"
-4. Click vào workflow và chọn **Run workflow** để test thủ công
-
-## ⏰ Lịch chạy tự động
-Workflow sẽ tự động chạy:
-- **Mỗi 6 tiếng**: 0:00, 6:00, 12:00, 18:00 UTC
-- Tương đương: 7:00, 13:00, 19:00, 1:00 giờ Việt Nam (UTC+7)
-
-## 🔍 Kiểm tra hoạt động
-
-### Xem logs của workflow:
-1. Vào tab **Actions** trên GitHub
-2. Click vào workflow run gần nhất
-3. Click vào job "keep-alive"
-4. Xem output để kiểm tra:
-   - ✅ "App is alive and responding!" = Thành công
-   - ⚠️ Các thông báo lỗi khác = Cần kiểm tra
-
-### Test thủ công:
-1. Vào tab **Actions**
-2. Chọn workflow "Keep Streamlit App Alive"
-3. Click **Run workflow** > **Run workflow**
-4. Đợi vài giây và kiểm tra kết quả
-
-## 🛠️ Tùy chỉnh
-
-### Thay đổi tần suất ping:
-Sửa file `.github/workflows/keep-alive.yml`, dòng `cron`:
-
-```yaml
-# Mỗi 4 tiếng
-- cron: '0 */4 * * *'
-
-# Mỗi 3 tiếng
-- cron: '0 */3 * * *'
-
-# Mỗi 2 tiếng
-- cron: '0 */2 * * *'
-
-# Mỗi giờ
-- cron: '0 * * * *'
-```
-
-**Lưu ý**: GitHub Actions có giới hạn 2000 phút/tháng cho tài khoản miễn phí. Mỗi lần chạy mất ~1 phút, nên:
-- Mỗi 6 tiếng = 120 lần/tháng = ~120 phút ✅ An toàn
-- Mỗi giờ = 720 lần/tháng = ~720 phút ✅ Vẫn OK
-- Mỗi 30 phút = 1440 lần/tháng = ~1440 phút ⚠️ Gần giới hạn
-
-## ❓ Xử lý sự cố
-
-### Lỗi: "STREAMLIT_APP_URL secret chưa được thiết lập"
-- Kiểm tra lại Bước 2, đảm bảo đã thêm secret với tên chính xác
-
-### Lỗi: "App returned unexpected status code"
-- Kiểm tra URL có đúng không
-- Kiểm tra ứng dụng Streamlit có đang hoạt động không
-- Thử truy cập URL trực tiếp trên trình duyệt
-
-### Workflow không chạy tự động
-- Đảm bảo repository là **public** hoặc có GitHub Pro/Team (private repos cần trả phí)
-- Kiểm tra tab Actions có bật không (Settings > Actions > General)
-
-## 📊 Giám sát
-
-Để theo dõi hiệu quả:
-1. Kiểm tra tab Actions hàng tuần
-2. Xem Streamlit Cloud analytics (nếu có)
-3. Nhờ người dùng báo cáo nếu gặp lỗi truy cập
-
-## 🎉 Hoàn thành!
-
-Sau khi thiết lập xong, ứng dụng của bạn sẽ được "đánh thức" tự động mỗi 6 tiếng, đảm bảo luôn sẵn sàng phục vụ người dùng!
+> Với interval 5 phút, UptimeRobot sẽ ping trước khi Streamlit kịp ngủ.
 
 ---
 
-**Lưu ý quan trọng**: 
-- Giải pháp này chỉ hoạt động nếu repository GitHub là **public** hoặc bạn có GitHub Pro/Team
-- Nếu repository là private và dùng tài khoản free, bạn cần nâng cấp hoặc chuyển sang giải pháp khác (UptimeRobot)
+## 🥈 Giải pháp 2: Cron-job.org (Miễn phí, backup)
+
+1. Tạo tài khoản tại [cron-job.org](https://cron-job.org)
+2. Tạo cronjob mới:
+   - **URL**: URL Streamlit app
+   - **Schedule**: Mỗi 5 phút (`*/5 * * * *`)
+3. Lưu và bật cronjob
+
+---
+
+## 🥉 Giải pháp 3: GitHub Actions (Hỗ trợ thêm)
+
+GitHub Actions **KHÔNG thể** giữ Streamlit thức một mình, nhưng hữu ích để:
+- Đảm bảo app không bị **xóa** vì inactive quá lâu (>30 ngày)
+- Trigger wake-up nếu kết hợp với UptimeRobot
+
+File `.github/workflows/keep-alive.yml` hiện tại đã được cấu hình ping mỗi 30 phút.  
+Bước thiết lập: Thêm secret `STREAMLIT_APP_URL` vào GitHub repo:
+1. Vào **Settings** → **Secrets and variables** → **Actions**
+2. **New repository secret** → Name: `STREAMLIT_APP_URL`, Value: URL app
+3. Push code lên GitHub
+
+---
+
+## 📊 So sánh các giải pháp
+
+| Giải pháp | Chi phí | Hiệu quả giữ thức | Dễ thiết lập |
+|---|---|---|---|
+| UptimeRobot (5 phút) | Miễn phí | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| cron-job.org (5 phút) | Miễn phí | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| GitHub Actions (30 phút) | Miễn phí | ⭐⭐ (quá chậm) | ⭐⭐⭐ |
+| Streamlit Cloud trả phí | ~$25/tháng | ⭐⭐⭐⭐⭐ (không ngủ) | ⭐⭐⭐⭐⭐ |
+
+---
+
+## ✅ Kiểm tra sau khi thiết lập
+
+1. Để app idle 10 phút không dùng
+2. Mở URL app trên browser → nếu vào được ngay (không có màn hình "Waking up...") = thành công
+3. Kiểm tra UptimeRobot dashboard xem logs ping có thành công không
+
+---
+
+**Kết luận:** Dùng **UptimeRobot** với interval **5 phút** là cách đơn giản và hiệu quả nhất để giữ Streamlit Free không ngủ.
