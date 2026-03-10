@@ -89,6 +89,14 @@ if drive_service.is_configured() and not os.path.exists("./data/expenses.db"):
 # Initialize database (after potential restore)
 init_db()
 
+# Auto-fix: sửa data cũ có total_amount = giá gốc (trước bản fix import)
+# Migration này idempotent: chỉ sửa record SAI, record đúng tự động bỏ qua
+try:
+    from migrate_db import fix_already_allocated_total_amount
+    fix_already_allocated_total_amount()
+except Exception as _mig_err:
+    print(f"⚠️ Migration fix_already_allocated skipped: {_mig_err}")
+
 # Verify write access on startup
 try:
     db_path = settings.database_url.replace("sqlite:///", "")
