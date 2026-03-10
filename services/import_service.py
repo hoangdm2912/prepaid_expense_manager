@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Tuple, Dict, Any, Optional
 from io import BytesIO
+from utils.validators import parse_vn_number
 
 
 class ImportService:
@@ -161,11 +162,11 @@ class ImportService:
 
             # Total amount
             try:
-                amount = float(row[ImportService.COL_AMOUNT])
+                amount = parse_vn_number(row[ImportService.COL_AMOUNT])
                 if amount <= 0:
                     errors.append(f"Dòng {row_num}: Tổng tiền phải lớn hơn 0")
             except (ValueError, TypeError):
-                errors.append(f"Dòng {row_num}: Tổng tiền không hợp lệ")
+                errors.append(f"Dòng {row_num}: Tổng tiền không hợp lệ (giá trị: '{row[ImportService.COL_AMOUNT]}')—định dạng chấp nhận: 1200000 hoặc 1.200.000")
 
             # Dates
             try:
@@ -239,11 +240,11 @@ class ImportService:
             document_code = str(raw_doc).strip() if raw_doc is not None else None
 
             # --- TIỀN ---
-            original_total = float(row[ImportService.COL_AMOUNT])  # Tổng gốc từ XLSX
+            original_total = parse_vn_number(row[ImportService.COL_AMOUNT])
 
             raw_alloc = ImportService._get_col(row, ImportService.COL_ALREADY_ALLOC, 0)
             try:
-                already_allocated = float(raw_alloc) if raw_alloc is not None else 0.0
+                already_allocated = parse_vn_number(raw_alloc) if raw_alloc is not None else 0.0
             except (ValueError, TypeError):
                 already_allocated = 0.0
 

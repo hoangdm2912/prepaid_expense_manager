@@ -3,6 +3,65 @@ import re
 from datetime import date
 
 
+def parse_vn_number(value) -> float:
+    """
+    Parse số từ nhiều định dạng phổ biến (Excel VN, kế toán, plain).
+
+    Hỗ trợ:
+      1.200.000     → 1200000  (VN/EU: dấu . phân ngàn)
+      1,200,000     → 1200000  (US: dấu , phân ngàn)
+      1.200.000,50  → 1200000.5 (VN: . ngàn, , thập phân)
+      1,200,000.50  → 1200000.5 (US: , ngàn, . thập phân)
+      1200000       → 1200000  (plain)
+      1200000.5     → 1200000.5 (plain decimal)
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    s = str(value).strip()
+    # Bỏ ký hiệu tiền tệ và khoảng trắng
+    s = re.sub(r'[\s\u00a0đ₫$€£]|(VND|vnđ|vnd)', '', s, flags=re.IGNORECASE).strip()
+    if not s:
+        return 0.0
+
+    has_dot   = '.' in s
+    has_comma = ',' in s
+
+    if has_dot and has_comma:
+        # Xác định cái nào là phân cách thập phân: cái xuất hiện SAU CÙNG
+        last_dot   = s.rfind('.')
+        last_comma = s.rfind(',')
+        if last_dot > last_comma:
+            # Dạng US: 1,200,000.50 → bỏ dấu ,
+            s = s.replace(',', '')
+        else:
+            # Dạng VN/EU: 1.200.000,50 → bỏ dấu . rồi đổi , → .
+            s = s.replace('.', '').replace(',', '.')
+
+    elif has_dot:
+        parts = s.split('.')
+        # Nhiều dấu . → tất cả là phân ngàn: 1.200.000
+        # Một dấu . với 3 chữ số sau → phân ngàn: 1.200
+        # Một dấu . với ≠3 chữ số sau → thập phân: 1.5
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[-1]) == 3):
+            s = s.replace('.', '')  # phân ngàn → bỏ hết
+        # else: giữ nguyên (thập phân)
+
+    elif has_comma:
+        parts = s.split(',')
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[-1]) == 3):
+            s = s.replace(',', '')  # phân ngàn → bỏ hết
+        else:
+            s = s.replace(',', '.')  # thập phân → đổi sang .
+
+    try:
+        return float(s)
+    except ValueError:
+        raise ValueError(f"Không thể đọc số: '{value}'")
+
+
 def validate_account_number(account_number: str) -> tuple[bool, str]:
     """
     Validate account number format (242xxx).

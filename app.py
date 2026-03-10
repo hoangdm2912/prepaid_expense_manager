@@ -12,7 +12,7 @@ from services.allocation import AllocationService
 from services.storage import GoogleDriveService
 from services.export import ExportService
 from services.import_service import ImportService
-from utils.validators import validate_account_number, validate_amount, validate_file_type
+from utils.validators import validate_account_number, validate_amount, validate_file_type, parse_vn_number
 from utils.helpers import format_currency, format_quarter, get_quarter
 from config.settings import settings
 
@@ -211,7 +211,11 @@ def page_create_expense():
             account_number = st.text_input("Tài khoản chi phí (*)", value="242")
             name = st.text_input("Tên khoản chi phí (*)")
             document_code = st.text_input("Mã chứng từ / Hóa đơn")
-            total_amount = st.number_input("Tổng số tiền (*)", min_value=0.0, step=1000.0, format="%f")
+            total_amount_str = st.text_input(
+                "Tổng số tiền (*)",
+                placeholder="Ví dụ: 1.200.000 hoặc 1200000",
+                help="Nhập hoặc dán số từ Excel — chấp nhận dấu chấm phân ngàn (1.200.000)"
+            )
             
             st.markdown("---")
             st.markdown("**Phân bổ Quá khứ (Nếu có)**")
@@ -236,7 +240,10 @@ def page_create_expense():
                 past_alloc_df,
                 num_rows="dynamic",
                 column_config={
-                    "amount": st.column_config.NumberColumn("Số tiền", min_value=0, format="%d"),
+                    "amount": st.column_config.TextColumn(
+                        "Số tiền",
+                        help="Nhập hoặc dán từ Excel (1.200.000 hoặc 1200000)"
+                    ),
                     "period": st.column_config.TextColumn("Kỳ PB (Quý/Năm)", help="Ví dụ: Q1/2024")
                 },
                 use_container_width=True,
@@ -272,6 +279,13 @@ def page_create_expense():
         submitted = st.form_submit_button("Lưu Chi Phí")
         
         if submitted:
+            # Parse số tiền từ text input (hỗ trợ 1.200.000 và 1200000)
+            try:
+                total_amount = parse_vn_number(total_amount_str)
+            except ValueError:
+                st.error("❌ Tổng số tiền không hợp lệ. Nhập số nguyên hoặc dạng 1.200.000")
+                return
+
             # Validation
             if not account_number or not name or total_amount <= 0:
                 st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
@@ -307,10 +321,14 @@ def page_create_expense():
                 # Process Past Allocations from DataEditor
                 total_already_allocated = 0
                 past_allocations_list = []
-                
+
                 # edited_past_alloc is a DataFrame
                 for idx, row in edited_past_alloc.iterrows():
-                    p_amount = float(row.get('amount', 0) or 0)
+                    # Parse số tiền quá khứ (có thể dạng 1.200.000)
+                    try:
+                        p_amount = parse_vn_number(row.get('amount', 0) or 0)
+                    except (ValueError, TypeError):
+                        p_amount = 0.0
                     p_period = str(row.get('period', '') or '').strip()
                     
                     if p_amount > 0:
