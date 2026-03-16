@@ -195,14 +195,37 @@ def page_create_expense():
     
     # Initialize session state for past allocations if not exists
     if 'past_allocations_rows' not in st.session_state:
-        st.session_state['past_allocations_rows'] = [{'amount': 0.0, 'period': ''}]
+        st.session_state['past_allocations_rows'] = [{'amount': '', 'period': ''}]
 
     def add_past_allocation_row():
-        st.session_state['past_allocations_rows'].append({'amount': 0.0, 'period': ''})
+        st.session_state['past_allocations_rows'].append({'amount': '', 'period': ''})
 
     def remove_past_allocation_row(index):
         if len(st.session_state['past_allocations_rows']) > 0:
             st.session_state['past_allocations_rows'].pop(index)
+
+    # --- Phân bổ Quá khứ: OUTSIDE form (st.data_editor with dynamic rows cannot live inside st.form) ---
+    st.markdown("**Phân bổ Quá khứ (Nếu có)**")
+    st.caption("Nhập các khoản đã phân bổ trước khi đưa vào hệ thống. Dùng nút ➕ ở cuối bảng để thêm dòng.")
+
+    past_alloc_df = pd.DataFrame(st.session_state['past_allocations_rows'])
+    edited_past_alloc = st.data_editor(
+        past_alloc_df,
+        num_rows="dynamic",
+        column_config={
+            "amount": st.column_config.TextColumn(
+                "Số tiền",
+                help="Nhập hoặc dán từ Excel (1.200.000 hoặc 1200000)"
+            ),
+            "period": st.column_config.TextColumn("Kỳ PB (Quý/Năm)", help="Ví dụ: Q1/2024")
+        },
+        use_container_width=True,
+        key="past_alloc_editor"
+    )
+    # Sync edits back to session state so form submission can read them
+    st.session_state['past_allocations_rows'] = edited_past_alloc.to_dict('records')
+
+    st.markdown("---")
 
     with st.form("expense_form"):
         col1, col2 = st.columns(2)
@@ -215,39 +238,6 @@ def page_create_expense():
                 "Tổng số tiền (*)",
                 placeholder="Ví dụ: 1.200.000 hoặc 1200000",
                 help="Nhập hoặc dán số từ Excel — chấp nhận dấu chấm phân ngàn (1.200.000)"
-            )
-            
-            st.markdown("---")
-            st.markdown("**Phân bổ Quá khứ (Nếu có)**")
-            st.caption("Nhập các khoản đã phân bổ trước khi đưa vào hệ thống.")
-            
-            # Dynamic Past Allocations
-            # We can't use buttons inside a form easily for dynamic add/remove without rerun
-            # Use a slightly different approach: Render rows based on state, but adding/removing might need to be outside form 
-            # OR just render fixed number of slots or use a text area for "bulk" entry if simple.
-            # Best approach inside form: Use an expander or enable "process allocation" logic to handle comma separated?
-            # User request: "mở ra được nhiều dòng". 
-            # Native Streamlit forms don't support dynamic add/remove buttons well.
-            # Workaround: Use a slider or number input for "Number of past allocation rows" OUTSIDE form or just show 3-5 rows by default?
-            # Better: Move form ONLY around the submit button? No, we want one submit.
-            # Compromise: Show fixed 3 rows, or use DataEditor (Streamlit 1.23+).
-            # Let's use DataEditor for "Past Allocations"!
-             
-            past_alloc_df = pd.DataFrame(
-                st.session_state['past_allocations_rows']
-            )
-            edited_past_alloc = st.data_editor(
-                past_alloc_df,
-                num_rows="dynamic",
-                column_config={
-                    "amount": st.column_config.TextColumn(
-                        "Số tiền",
-                        help="Nhập hoặc dán từ Excel (1.200.000 hoặc 1200000)"
-                    ),
-                    "period": st.column_config.TextColumn("Kỳ PB (Quý/Năm)", help="Ví dụ: Q1/2024")
-                },
-                use_container_width=True,
-                key="past_alloc_editor"
             )
 
         with col2:
@@ -322,7 +312,8 @@ def page_create_expense():
                 total_already_allocated = 0
                 past_allocations_list = []
 
-                # edited_past_alloc is a DataFrame
+                # Read past allocations from session state (edited outside form)
+                edited_past_alloc = pd.DataFrame(st.session_state.get('past_allocations_rows', []))
                 for idx, row in edited_past_alloc.iterrows():
                     # Parse số tiền quá khứ (có thể dạng 1.200.000)
                     try:
@@ -429,7 +420,7 @@ def page_create_expense():
                 st.info(f"Đã ghi nhận {len(past_allocations_list)} khoản phân bổ quá khứ.")
                 
                 # Reset form sort of (session state needs manual clear or rerun)
-                st.session_state['past_allocations_rows'] = [{'amount': 0.0, 'period': ''}]
+                st.session_state['past_allocations_rows'] = [{'amount': '', 'period': ''}]
                 
             except Exception as e:
                 db.rollback()
