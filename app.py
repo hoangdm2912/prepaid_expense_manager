@@ -516,9 +516,12 @@ def page_bulk_import():
                             # Calculate and add normal allocations
                             # total_amount tại đây = remaining = original - already_allocated
                             # (đã được tính đúng trong parse_import_data)
+                            # future_start_date: nếu có kỳ quá khứ → đầu quý tiếp theo
+                            # sau kỳ cuối, tránh tạo allocation trùng kỳ lịch sử.
+                            alloc_start = expense_data.get('future_start_date', expense_data['start_date'])
                             allocations_data = allocation_service.calculate_quarterly_allocations(
                                 expense_data['total_amount'],  # == remaining_amount
-                                expense_data['start_date'],
+                                alloc_start,
                                 expense_data['end_date']
                             )
                             

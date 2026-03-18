@@ -1,6 +1,6 @@
 """Service for bulk importing expenses from Excel/CSV."""
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Tuple, Dict, Any, Optional
 from io import BytesIO
 from utils.validators import parse_vn_number
@@ -257,6 +257,10 @@ class ImportService:
             past_quarter_year = None
             past_periods: List[Dict] = []
 
+            # future_start_date: mặc định = start_date gốc;
+            # sẽ được cập nhật = đầu quý TIẾP THEO sau kỳ quá khứ cuối cùng.
+            future_start_date = start_date
+
             if raw_past_qy is not None:
                 past_quarter_year = str(raw_past_qy).strip()
                 # Hỗ trợ nhiều kỳ ngăn bởi ";" (ví dụ: Q1/2024;Q2/2024)
@@ -276,6 +280,19 @@ class ImportService:
                 for p in past_periods:
                     p['amount'] = per_period
 
+            # Tính future_start_date = ngày đầu quý TIẾP THEO sau kỳ quá khứ cuối cùng
+            # Điều này đảm bảo phần còn lại KHÔNG tạo allocation trùng với kỳ quá khứ.
+            # Ví dụ: Quá khứ Q4/2025 → future_start = 01/01/2026
+            if past_periods:
+                # Tìm kỳ quá khứ LỚN NHẤT (cuối cùng)
+                last_past = max(past_periods, key=lambda p: (p['year'], p['quarter']))
+                lq, ly = last_past['quarter'], last_past['year']
+                # Quý tiếp theo
+                if lq == 4:
+                    future_start_date = date(ly + 1, 1, 1)
+                else:
+                    future_start_date = date(ly, lq * 3 + 1, 1)
+
             expense = {
                 'account_number':   str(row[ImportService.COL_ACCOUNT]).strip(),
                 'name':             str(row[ImportService.COL_NAME]).strip(),
@@ -286,6 +303,10 @@ class ImportService:
                 'original_total':   original_total,   # chỉ dùng để log/debug
                 'start_date':       start_date,
                 'end_date':         end_date,
+                # Ngày bắt đầu dùng cho calculate_quarterly_allocations (phần còn lại).
+                # Nếu có kỳ quá khứ: = đầu quý tiếp theo sau kỳ cuối cùng.
+                # Nếu không có quá khứ: = start_date gốc.
+                'future_start_date': future_start_date,
                 'sub_code':         sub_code,
                 'allocation_months': max(1, allocation_months),
                 'already_allocated': already_allocated,
