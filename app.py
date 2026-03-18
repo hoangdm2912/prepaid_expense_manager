@@ -637,23 +637,21 @@ def page_list_expenses():
                 st.markdown(f"**Mã phụ (Khoản mục):** {expense.sub_code}")
                 st.markdown(f"**Ngày bắt đầu:** {expense.start_date.strftime('%d/%m/%Y')}")
                 st.markdown(f"**Ngày kết thúc:** {expense.end_date.strftime('%d/%m/%Y')}")
-                
+                nguyen_gia_display = expense.total_amount + expense.already_allocated
+                st.markdown(f"**Nguyên giá:** {format_currency(nguyen_gia_display)}")
+                st.markdown(f"**Đã PB (QK):** {format_currency(expense.already_allocated)}")
+                st.markdown(f"**Còn lại:** {format_currency(expense.total_amount)}")
+
             with c2:
                 st.caption("✏️ Thông tin bổ sung (Có thể sửa)")
-                
-                # Dùng Form để tránh re-render/chớp nháy khi đang gõ
-                with st.form(key=f"edit_form_{expense.id}"):
-                    # Editable: Document Code
-                    new_doc = st.text_input("Mã chứng từ", value=expense.document_code or "", key=f"d_{expense.id}")
 
-                    # Editable: Tags
+                with st.form(key=f"edit_form_{expense.id}"):
+                    new_doc = st.text_input("Mã chứng từ", value=expense.document_code or "", key=f"d_{expense.id}")
                     new_tags = st.text_input("Tags (phân cách dấu phẩy)", value=expense.tags or "", key=f"t_{expense.id}")
-                    
-                    # Editable: Note
                     new_note = st.text_area("Ghi chú", value=expense.note or "", height=68, key=f"n_{expense.id}")
-                    
+
                     save_btn = st.form_submit_button("💾 Lưu thay đổi", use_container_width=True)
-                    
+
                     if save_btn:
                         changed = False
                         if new_doc != (expense.document_code or ""):
@@ -669,33 +667,216 @@ def page_list_expenses():
                             db.commit()
                             st.toast("✅ Đã lưu thay đổi!", icon="✅")
 
-            # --- ALLOCATION SCHEDULE (Moved Up) ---
+            # --- ADVANCED EDIT (Tính lại phân bổ) ---
+            with st.expander("🔧 Chỉnh sửa nâng cao (Nguyên giá / Ngày / Phân bổ QK)", expanded=False):
+                st.warning("⚠️ Sau khi lưu, toàn bộ kế hoạch phân bổ tương lai sẽ được **tính lại từ đầu**.")
+
+                adv_col1, adv_col2 = st.columns(2)
+                with st.form(key=f"adv_edit_form_{expense.id}"):
+                    with adv_col1:
+                        adv_nguyen_gia = st.text_input(
+                            "Nguyên giá (*)",
+                            value=str(int(round(expense.total_amount + expense.already_allocated))),
+                            key=f"ng_{expense.id}",
+                            help="Tổng giá trị gốc của chứng từ (bao gồm cả phần đã phân bổ quá khứ)"
+                        )
+                        adv_start = st.date_input(
+                            "Ngày bắt đầu (*)",
+                            value=expense.start_date,
+                            format="DD/MM/YYYY",
+                            key=f"sd_{expense.id}"
+                        )
+                        adv_end = st.date_input(
+                            "Ngày kết thúc (*)",
+                            value=expense.end_date,
+                            format="DD/MM/YYYY",
+                            key=f"ed_{expense.id}"
+                        )
+                        adv_sub = st.selectbox(
+                            "Segment (*)",
+                            options=["9995", "9996"],
+                            index=0 if expense.sub_code == "9995" else 1,
+                            key=f"sc_{expense.id}"
+                        )
+
+                    with adv_col2:
+                        st.caption("📋 Phân bổ Quá khứ hiện tại")
+                        # Hiển thị các QK allocs hiện có để tham khảo
+                        hist_allocs = sorted(
+                            [a for a in expense.allocations if a.days_in_quarter == 0],
+                            key=lambda a: (a.year, a.quarter)
+                        )
+                        if hist_allocs:
+                            for ha in hist_allocs:
+                                q_lbl = f"Q{ha.quarter}/{ha.year}" if ha.quarter > 0 else "QK"
+                                st.caption(f"• {q_lbl}: {format_currency(ha.amount)}")
+                        else:
+                            st.caption("(Chưa có phân bổ quá khứ)")
+
+                        st.markdown("---")
+                        st.caption("✏️ Nhập lại phân bổ QK mới (ghi đè toàn bộ)")
+                        adv_past_qy = st.text_input(
+                            "Quý-Năm QK",
+                            value=expense.past_quarter_year or "",
+                            placeholder="VD: Q4/2025 hoặc Q3/2025;Q4/2025",
+                            key=f"pqy_{expense.id}",
+                            help="Nhập kỳ quá khứ, nhiều kỳ cách nhau bằng dấu chấm phẩy"
+                        )
+                        adv_already = st.text_input(
+                            "Tổng đã phân bổ QK",
+                            value=str(int(round(expense.already_allocated))) if expense.already_allocated else "0",
+                            placeholder="VD: 4000000",
+                            key=f"alr_{expense.id}",
+                            help="Tổng số tiền đã phân bổ trong các kỳ quá khứ"
+                        )
+
+                    adv_save_btn = st.form_submit_button("🔄 Tính lại Phân bổ & Lưu", type="primary", use_container_width=True)
+
+                    if adv_save_btn:
+                        try:
+                            from utils.validators import parse_vn_number as _parse_num
+
+                            # Parse inputs
+                            new_nguyen_gia = _parse_num(adv_nguyen_gia)
+                            new_already    = _parse_num(adv_already) if adv_already.strip() else 0.0
+                            new_start      = adv_start
+                            new_end        = adv_end
+
+                            if new_nguyen_gia <= 0:
+                                st.error("❌ Nguyên giá phải > 0")
+                            elif new_end <= new_start:
+                                st.error("❌ Ngày kết thúc phải sau ngày bắt đầu")
+                            elif new_already >= new_nguyen_gia:
+                                st.error(f"❌ Tổng đã PB ({int(new_already):,}) phải nhỏ hơn Nguyên giá ({int(new_nguyen_gia):,})")
+                            else:
+                                remaining = new_nguyen_gia - new_already
+
+                                # Parse past periods
+                                new_months = allocation_service.calculate_months_between_dates(new_start, new_end)
+                                past_periods = []
+                                future_start = new_start  # default
+
+                                past_qy_str = adv_past_qy.strip()
+                                if past_qy_str and new_already > 0:
+                                    periods_raw = [p.strip() for p in past_qy_str.split(';') if p.strip()]
+                                    for p_str in periods_raw:
+                                        if '/' in p_str:
+                                            try:
+                                                q_part, y_part = p_str.split('/', 1)
+                                                p_q = int(q_part.replace('Q','').replace('q','').strip())
+                                                p_y = int(y_part.strip())
+                                                past_periods.append({'quarter': p_q, 'year': p_y})
+                                            except Exception:
+                                                pass
+
+                                    # Chia đều already_allocated cho các kỳ QK
+                                    per_period = new_already / len(past_periods) if past_periods else new_already
+
+                                    # future_start = đầu quý tiếp theo sau kỳ QK cuối
+                                    if past_periods:
+                                        last_p = max(past_periods, key=lambda p: (p['year'], p['quarter']))
+                                        lq, ly = last_p['quarter'], last_p['year']
+                                        from datetime import date as _date
+                                        if lq == 4:
+                                            future_start = _date(ly + 1, 1, 1)
+                                        else:
+                                            future_start = _date(ly, lq * 3 + 1, 1)
+
+                                # Guard: future_start không được sau end_date
+                                if future_start > new_end:
+                                    future_start = new_start
+
+                                # === CẬP NHẬT EXPENSE ===
+                                expense.total_amount       = remaining
+                                expense.already_allocated  = new_already
+                                expense.start_date         = new_start
+                                expense.end_date           = new_end
+                                expense.sub_code           = adv_sub
+                                expense.allocation_months  = new_months
+                                expense.past_quarter_year  = past_qy_str if past_qy_str else None
+
+                                # === XÓA TẤT CẢ ALLOCS CŨ ===
+                                for old_alloc in list(expense.allocations):
+                                    db.delete(old_alloc)
+                                db.flush()
+
+                                # === TẠO LẠI HISTORICAL ALLOCS ===
+                                if past_periods and new_already > 0:
+                                    per_period = new_already / len(past_periods)
+                                    for pp in past_periods:
+                                        hist_a = Allocation(
+                                            quarter=pp['quarter'],
+                                            year=pp['year'],
+                                            amount=round(per_period),
+                                            days_in_quarter=0,
+                                            start_date=new_start,
+                                            end_date=new_start
+                                        )
+                                        expense.allocations.append(hist_a)
+                                elif new_already > 0:
+                                    # Có already nhưng không có kỳ cụ thể → lưu QK ẩn
+                                    hist_a = Allocation(
+                                        quarter=0,
+                                        year=0,
+                                        amount=round(new_already),
+                                        days_in_quarter=0,
+                                        start_date=new_start,
+                                        end_date=new_start
+                                    )
+                                    expense.allocations.append(hist_a)
+
+                                # === TÍNH LẠI FUTURE ALLOCS ===
+                                new_allocs_data = allocation_service.calculate_quarterly_allocations(
+                                    remaining,
+                                    future_start,
+                                    new_end
+                                )
+                                for ad in new_allocs_data:
+                                    new_a = Allocation(
+                                        quarter=ad['quarter'],
+                                        year=ad['year'],
+                                        amount=ad['amount'],
+                                        days_in_quarter=ad['days_in_quarter'],
+                                        start_date=ad['start_date'],
+                                        end_date=ad['end_date']
+                                    )
+                                    expense.allocations.append(new_a)
+
+                                db.commit()
+                                st.success(f"✅ Đã tính lại! Nguyên giá: {int(new_nguyen_gia):,} | QK: {int(new_already):,} | Còn lại: {int(remaining):,} | PB từ: {future_start.strftime('%d/%m/%Y')}")
+                                st.rerun()
+
+                        except ValueError as ve:
+                            st.error(f"❌ Lỗi định dạng số: {ve}")
+                        except Exception as ex:
+                            db.rollback()
+                            st.error(f"❌ Lỗi khi lưu: {ex}")
+
+            # --- ALLOCATION SCHEDULE ---
             st.markdown("##### 📅 Kế hoạch phân bổ")
-            
-            # Prepare data logic 
+
             schedule_data = []
             sorted_allocs = sorted(expense.allocations, key=lambda x: (x.year, x.quarter))
-            running_accumulated = expense.already_allocated
+            running_accumulated = 0.0
             total_expense_val = expense.total_amount + expense.already_allocated
-            
+
             for alloc in sorted_allocs:
                 alloc_amount = int(round(alloc.amount))
-                if alloc.days_in_quarter > 0:
-                    running_accumulated += alloc_amount
+                running_accumulated += alloc_amount
                 remaining_val = total_expense_val - running_accumulated
-                
+
                 q_label = f"Q{alloc.quarter}/{alloc.year}" if alloc.quarter > 0 else "QK (Quá khứ)"
-                
+
                 schedule_data.append({
                     "Quý/Năm": q_label,
-                    "Số tiền": alloc_amount, 
+                    "Số tiền": alloc_amount,
                     "Lũy kế đã PB": int(running_accumulated),
                     "Còn lại chưa PB": int(remaining_val),
                     "Ngày BĐ": alloc.start_date.strftime("%d/%m/%Y"),
                     "Ngày KT": alloc.end_date.strftime("%d/%m/%Y"),
                     "Số ngày": alloc.days_in_quarter
                 })
-            
+
             df_schedule = pd.DataFrame(schedule_data)
             st.dataframe(
                 df_schedule,
@@ -711,7 +892,6 @@ def page_list_expenses():
             # --- DOCUMENT MANAGEMENT (Toggle) ---
             if st.checkbox("📂 Quản lý chứng từ & Thao tác khác", key=f"toggle_docs_{expense.id}"):
                 st.markdown("---")
-                # Documents
                 if expense.documents:
                     for doc in expense.documents:
                         cd1, cd2 = st.columns([4, 1])
@@ -731,11 +911,10 @@ def page_list_expenses():
                 else:
                     st.caption("Chưa có chứng từ.")
 
-                # Upload
                 with st.form(key=f"add_doc_form_{expense.id}", clear_on_submit=True):
                     new_files = st.file_uploader(
-                        "Thêm tài liệu", 
-                        accept_multiple_files=True, 
+                        "Thêm tài liệu",
+                        accept_multiple_files=True,
                         type=['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'],
                         key=f"uploader_{expense.id}"
                     )
@@ -755,10 +934,9 @@ def page_list_expenses():
                                     cnt += 1
                             db.commit()
                             if cnt: st.rerun()
-                
+
                 st.divider()
-                
-                # Bottom Actions
+
                 ac1, ac2 = st.columns(2)
                 with ac1:
                     if st.button("📤 Xuất Excel Kế hoạch", key=f"export_{expense.id}"):
@@ -768,16 +946,19 @@ def page_list_expenses():
                             pd.DataFrame([{
                                 'Tên': expense.name,
                                 'Mã TK': expense.account_number,
-                                'Tổng tiền': expense.total_amount
+                                'Nguyên giá': expense.total_amount + expense.already_allocated,
+                                'Đã PB (QK)': expense.already_allocated,
+                                'Còn lại': expense.total_amount
                             }]).to_excel(writer, sheet_name='Thong_Tin', index=False)
                         st.download_button("⬇️ Tải file", buffer.getvalue(), f"expense_{expense.id}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"dl_{expense.id}")
-                
+
                 with ac2:
-                     if st.button("🗑️ Xóa Khoản mục này", key=f"delete_{expense.id}", type="primary"):
+                    if st.button("🗑️ Xóa Khoản mục này", key=f"delete_{expense.id}", type="primary"):
                         db.delete(expense)
                         db.commit()
                         st.success("Đã xóa!")
                         st.rerun()
+
 
     db.close()
 
