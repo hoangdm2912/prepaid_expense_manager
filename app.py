@@ -668,8 +668,9 @@ def page_list_expenses():
                             st.toast("✅ Đã lưu thay đổi!", icon="✅")
 
             # --- ADVANCED EDIT (Tính lại phân bổ) ---
-            with st.expander("🔧 Chỉnh sửa nâng cao (Nguyên giá / Ngày / Phân bổ QK)", expanded=False):
+            if st.checkbox("🔧 Chỉnh sửa nâng cao (Nguyên giá / Ngày / Phân bổ QK)", key=f"adv_toggle_{expense.id}"):
                 st.warning("⚠️ Sau khi lưu, toàn bộ kế hoạch phân bổ tương lai sẽ được **tính lại từ đầu**.")
+
 
                 adv_col1, adv_col2 = st.columns(2)
                 with st.form(key=f"adv_edit_form_{expense.id}"):
