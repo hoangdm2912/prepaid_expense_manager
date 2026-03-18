@@ -794,19 +794,37 @@ def page_allocation_schedule():
     with tab1:
         # --- REPORT CONFIGURATION ---
         with st.expander("⚙️ Cấu hình Báo cáo Số dư", expanded=True):
-            col_c1, col_c2, col_c3 = st.columns(3)
-            
+            col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+
             with col_c1:
-                report_date = st.date_input("Chọn ngày báo cáo (Số dư cuối kỳ):", value=date.today(), format="DD/MM/YYYY")
-            
+                report_year = st.selectbox(
+                    "Năm báo cáo:",
+                    options=list(range(date.today().year - 3, date.today().year + 5)),
+                    index=list(range(date.today().year - 3, date.today().year + 5)).index(date.today().year),
+                    key="report_year_tab1"
+                )
+
             with col_c2:
+                report_quarter = st.selectbox(
+                    "Kỳ (Quý):",
+                    options=[1, 2, 3, 4],
+                    index=get_quarter(date.today())[0] - 1,
+                    format_func=lambda q: f"Q{q}",
+                    key="report_quarter_tab1"
+                )
+                # Hiển thị ngày cuối kỳ đã chọn
+                from utils.helpers import get_quarter_dates
+                _, q_end_date = get_quarter_dates(report_quarter, report_year)
+                st.caption(f"📅 Tính đến hết: **{q_end_date.strftime('%d/%m/%Y')}**")
+
+            with col_c3:
                 group_by = st.multiselect(
                     "Nhóm theo (Pivot Levels):",
                     options=["Tài khoản", "Ngắn/Dài hạn (Mã 999x)", "Tags", "Mã Chứng từ"],
                     default=["Tài khoản", "Ngắn/Dài hạn (Mã 999x)"]
                 )
-                
-            with col_c3:
+
+            with col_c4:
                 # Filter options
                 all_tags = []
                 all_expenses_query = db.query(Expense.tags).filter(Expense.tags.isnot(None)).all()
@@ -815,89 +833,100 @@ def page_allocation_schedule():
                         tags_list = [tag.strip() for tag in t[0].split(',')]
                         all_tags.extend(tags_list)
                 unique_tags = sorted(list(set(all_tags)))
-                
-                filter_tags = st.multiselect("Lọc dữ liệu theo Tags:", options=unique_tags, key="filter_tags_tab1")
-            
+
+                filter_tags = st.multiselect("Lọc theo Tags:", options=unique_tags, key="filter_tags_tab1")
+
             # Add Run Button to prevent auto-recalc flicker
             run_report = st.button("🚀 Tạo Báo Cáo", type="primary", key="btn_run_report")
 
         # --- DATA CALCULATION ---
         if run_report:
             st.session_state['report_generated_tab1'] = True
-            
+            st.session_state['report_quarter_snapshot'] = report_quarter
+            st.session_state['report_year_snapshot'] = report_year
+
         if st.session_state.get('report_generated_tab1'):
+            # Lấy lại kỳ từ snapshot (tránh thay đổi khi user chọn lại mà chưa bấm Tạo)
+            snap_q = st.session_state.get('report_quarter_snapshot', report_quarter)
+            snap_y = st.session_state.get('report_year_snapshot', report_year)
+            _, snap_end_date = get_quarter_dates(snap_q, snap_y)
+
+            st.info(f"📊 Báo cáo số dư cuối kỳ **Q{snap_q}/{snap_y}** (tính đến hết ngày **{snap_end_date.strftime('%d/%m/%Y')}**)")
+
             # Fetch all expenses
             query = db.query(Expense)
-            
+
             if filter_tags:
                 conditions = []
                 for tag in filter_tags:
                     conditions.append(Expense.tags.contains(tag))
                 from sqlalchemy import or_
                 query = query.filter(or_(*conditions))
-                
+
             # Sort deterministically to avoid flickering
             expenses = query.order_by(Expense.created_at.desc()).all()
-            
+
             if not expenses:
                 st.info("📭 Không có dữ liệu.")
             else:
                 report_data = []
-                
-                # Simple progress text
-                # progress_bar = st.progress(0, text="Đang tính toán...")
-                
+
                 for idx, expense in enumerate(expenses):
-                    total_value = expense.total_amount + expense.already_allocated
-                    
-                    # Calculate Accumulated Allocation up to report_date
+                    # Nguyên giá = total gốc (bao gồm cả phần quá khứ)
+                    nguyen_gia = expense.total_amount + expense.already_allocated
+
+                    # --- Tính ĐÃ PHÂN BỔ đến hết Q{snap_q}/{snap_y} ---
+                    # Bước 1: Cộng toàn bộ phần lịch sử (already_allocated / QK)
+                    #   - Phần already_allocated đã xảy ra trước khi vào hệ thống,
+                    #     nên nếu kỳ quá khứ <= kỳ báo cáo → tính vào "đã phân bổ".
+                    #   - Ta kiểm tra từng historical alloc (days_in_quarter == 0).
                     accumulated_alloc = 0
-                    
-                    # 1. Historical Allocations
-                    accumulated_alloc += expense.already_allocated
-                    
-                    # 2. System Allocations
+
                     for alloc in expense.allocations:
                         if alloc.days_in_quarter == 0:
-                            continue
-                            
-                        # Logic for future allocations
-                        if alloc.end_date <= report_date:
-                            # Fully passed
-                            accumulated_alloc += alloc.amount
-                        elif alloc.start_date <= report_date:
-                            # Partially passed (Current Quarter)
-                            days_passed = (report_date - alloc.start_date).days + 1
-                            if days_passed > 0:
-                                # Pro-rata
-                                ratio = days_passed / alloc.days_in_quarter
-                                accumulated_alloc += round(alloc.amount * ratio)
-                    
-                    remaining_balance = total_value - accumulated_alloc
-                    
+                            # Historical alloc: so sánh theo (year, quarter)
+                            if alloc.year > 0 and alloc.quarter > 0:
+                                if (alloc.year, alloc.quarter) <= (snap_y, snap_q):
+                                    accumulated_alloc += alloc.amount
+                            else:
+                                # QK không rõ kỳ → luôn tính vào (đã xảy ra trước hệ thống)
+                                accumulated_alloc += alloc.amount
+                        else:
+                            # Future/system alloc: so sánh theo (year, quarter)
+                            if (alloc.year, alloc.quarter) <= (snap_y, snap_q):
+                                accumulated_alloc += alloc.amount
+
+                    # Nếu không có historical alloc records nhưng already_allocated > 0
+                    # (chứng từ cũ chưa có alloc record chi tiết) → cộng thẳng
+                    has_hist_allocs = any(a.days_in_quarter == 0 for a in expense.allocations)
+                    if not has_hist_allocs and expense.already_allocated > 0:
+                        accumulated_alloc += expense.already_allocated
+
+                    so_du_cuoi_ky = nguyen_gia - accumulated_alloc
+
                     # Determine Short/Long based on sub_code
                     term_type = "Ngắn hạn (9995)" if expense.sub_code == "9995" else "Dài hạn (9996)"
-                    
+
                     report_data.append({
                         "Tên khoản mục": expense.name,
                         "Tài khoản": expense.account_number,
                         "Ngắn/Dài hạn (Mã 999x)": term_type,
                         "Tags": expense.tags or "(Không có)",
                         "Mã Chứng từ": expense.document_code or "",
-                        "Tổng Gốc": int(round(total_value)),
-                        "Đã Phân Bổ (Lũy kế)": int(round(accumulated_alloc)),
-                        "Số Dư Cuối Kỳ": int(round(remaining_balance)),
+                        "Nguyên giá": int(round(nguyen_gia)),
+                        f"Đã PB đến Q{snap_q}/{snap_y}": int(round(accumulated_alloc)),
+                        "Số Dư Cuối Kỳ": int(round(so_du_cuoi_ky)),
                         "Ghi chú": expense.note
                     })
-                
+
+                col_da_pb = f"Đã PB đến Q{snap_q}/{snap_y}"
                 df_report = pd.DataFrame(report_data)
-                
+
                 # Ensure numeric columns and fill NA
-                numeric_cols = ["Tổng Gốc", "Đã Phân Bổ (Lũy kế)", "Số Dư Cuối Kỳ"]
+                numeric_cols = ["Nguyên giá", col_da_pb, "Số Dư Cuối Kỳ"]
                 for col in numeric_cols:
-                    # Coerce and then cast to int to remove any .0
                     df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0).astype('int64')
-                
+
                 # Calculate Totals
                 total_row = {
                     "Tên khoản mục": "TỔNG CỘNG",
@@ -909,7 +938,7 @@ def page_allocation_schedule():
                 }
                 for col in numeric_cols:
                     total_row[col] = df_report[col].sum()
-                
+
                 # Append total row for Detailed View
                 df_detail_view = pd.concat([df_report, pd.DataFrame([total_row])], ignore_index=True)
 
@@ -919,18 +948,18 @@ def page_allocation_schedule():
                     try:
                         if not df_report.empty:
                             valid_group_by = [col for col in group_by if col in df_report.columns]
-                            
+
                             if valid_group_by:
                                 pivot_df = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
-                                
+
                                 # Calculate Pivot Total
                                 pivot_total = {col: "" for col in pivot_df.columns}
-                                pivot_total[pivot_df.columns[0]] = "TỔNG CỘNG" # Set label on first group col
+                                pivot_total[pivot_df.columns[0]] = "TỔNG CỘNG"
                                 for col in numeric_cols:
                                     pivot_total[col] = pivot_df[col].sum()
-                                
+
                                 pivot_df = pd.concat([pivot_df, pd.DataFrame([pivot_total])], ignore_index=True)
-                                
+
                                 st.dataframe(
                                     pivot_df,
                                     use_container_width=True,
@@ -943,47 +972,44 @@ def page_allocation_schedule():
                                 st.warning("Vui lòng chọn tiêu chí nhóm hợp lệ.")
                         else:
                             st.info("Không có dữ liệu để tổng hợp.")
-                            
+
                     except Exception as e:
                         st.warning(f"Không thể tạo bảng tổng hợp: {e}")
-                        
+
                 # --- DETAILED VIEW ---
                 st.markdown("### 📄 Chi tiết Số Dư")
-                
+
                 st.dataframe(
                     df_detail_view,
                     column_config={
-                         # Ensure numbers are displayed nicely (Streamlit default for int usually adds commas)
                         col: st.column_config.NumberColumn(format=None) for col in numeric_cols
                     },
                     use_container_width=True,
                     hide_index=True,
                     height=500
                 )
-                
+
                 col_exp1, _ = st.columns([1, 4])
                 with col_exp1:
                      # Simplified Export
                      if st.button("📥 Xuất Báo cáo Excel", key="btn_export_tab1"):
                          import io
-                         output_path = f"data/bao_cao_{report_date.strftime('%Y%m%d')}.xlsx"
+                         output_path = f"data/bao_cao_Q{snap_q}_{snap_y}.xlsx"
                          os.makedirs("data", exist_ok=True)
-                         
+
                          with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                              df_detail_view.to_excel(writer, sheet_name='Bao_Cao_Chi_Tiet', index=False)
                              if group_by and not df_report.empty:
                                  try:
-                                     # Re-calc pivot for export to be safe
-                                    valid_group_by = [col for col in group_by if col in df_report.columns]
-                                    if valid_group_by:
-                                        p_exp = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
-                                        p_exp['Tổng Gốc'] = p_exp['Tổng Gốc'].astype('int64')
-                                        p_exp['Đã Phân Bổ (Lũy kế)'] = p_exp['Đã Phân Bổ (Lũy kế)'].astype('int64')
-                                        p_exp['Số Dư Cuối Kỳ'] = p_exp['Số Dư Cuối Kỳ'].astype('int64')
-                                        p_exp.to_excel(writer, sheet_name='Tong_Hop_Pivot', index=False)
+                                     valid_group_by = [col for col in group_by if col in df_report.columns]
+                                     if valid_group_by:
+                                         p_exp = df_report.groupby(valid_group_by)[numeric_cols].sum().reset_index()
+                                         for nc in numeric_cols:
+                                             p_exp[nc] = p_exp[nc].astype('int64')
+                                         p_exp.to_excel(writer, sheet_name='Tong_Hop_Pivot', index=False)
                                  except:
                                      pass
-                         
+
                          with open(output_path, 'rb') as f:
                              st.download_button(
                                  label="⬇️ Tải file Excel",
@@ -992,7 +1018,8 @@ def page_allocation_schedule():
                                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                              )
         else:
-            st.info("👈 Vui lòng nhấn nút **'🚀 Tạo Báo Cáo'** để xem số liệu.")
+            st.info("👈 Vui lòng chọn **Năm** và **Kỳ (Quý)** rồi nhấn **'🚀 Tạo Báo Cáo'**.")
+
 
     # --- TAB 2: ALLOCATION SCHEDULE (OLD VIEW) ---
     with tab2:
