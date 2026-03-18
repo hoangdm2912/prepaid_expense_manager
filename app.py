@@ -707,22 +707,31 @@ def page_list_expenses():
 
             # --- CHỈNH SỬA NÂNG CAO ---
             if st.checkbox("🔧 Chỉnh sửa nâng cao (Nguyên giá / Ngày / Phân bổ QK)", key=f"adv_toggle_{expense.id}"):
-                st.warning("⚠️ Sau khi lưu, toàn bộ kế hoạch phân bổ tương lai sẽ được **tính lại từ đầu**. Nhấn nút **Lưu** để xác nhận.")
+                st.warning("⚠️ Sau khi lưu, toàn bộ kế hoạch phân bổ tương lai sẽ được **tính lại từ đầu**.")
 
-                # Giá trị hiện tại từ DB (luôn tính lại mỗi lần render → không bị stale)
-                _nguyen_gia_db  = float(expense.total_amount + expense.already_allocated)
-                _already_db     = float(expense.already_allocated or 0)
+                # Keys
+                ng_key   = f"ng_{expense.id}"
+                alr_key  = f"alr_{expense.id}"
+                pqy_key  = f"pqy_{expense.id}"
+                sync_key = f"adv_synced_{expense.id}"  # flag: đã sync từ DB chưa?
+
+                # ===== FORCE SYNC khi lần đầu mở hoặc sau khi lưu (sync_key bị xóa) =====
+                # Streamlit number_input với key= BỎ QUA value= nếu key đã trong session_state
+                # → PHẢI đặt session_state[key] = DB_value TRƯỚC khi render widget
+                if not st.session_state.get(sync_key, False):
+                    st.session_state[ng_key]  = float(expense.total_amount + expense.already_allocated)
+                    st.session_state[alr_key] = float(expense.already_allocated or 0.0)
+                    st.session_state[pqy_key] = expense.past_quarter_year or ""
+                    st.session_state[sync_key] = True  # đánh dấu đã sync, không reset lại khi user gõ
 
                 adv_col1, adv_col2 = st.columns(2)
                 with adv_col1:
-                    # number_input: Enter KHÔNG submit (chỉ button mới submit), hỗ trợ paste số
                     adv_nguyen_gia = st.number_input(
                         "Nguyên giá (*) — tổng gốc gồm cả QK",
                         min_value=0.0, step=1000000.0,
-                        value=_nguyen_gia_db,
                         format="%.0f",
-                        key=f"ng_{expense.id}",
-                        help="Nhập TỔNG GIÁ TRỊ GỐC (= Đã PB + Còn lại). VD: 10,000,000"
+                        key=ng_key,   # widget đọc/ghi session_state[ng_key]
+                        help="Nhập TỔNG GIÁ TRỊ GỐC (= Đã PB QK + Còn lại phân bổ tương lai)"
                     )
                     adv_start = st.date_input(
                         "Ngày bắt đầu (*)",
@@ -755,30 +764,26 @@ def page_list_expenses():
 
                     st.markdown("---")
                     st.caption("✏️ Nhập phân bổ QK mới (ghi đè toàn bộ)")
-
                     adv_past_qy = st.text_input(
                         "Quý-Năm QK",
-                        value=expense.past_quarter_year or "",
+                        key=pqy_key,
                         placeholder="VD: Q4/2025 hoặc Q3/2025;Q4/2025",
-                        key=f"pqy_{expense.id}",
                         help="Nhiều kỳ cách nhau bằng dấu ;"
                     )
                     adv_already = st.number_input(
                         "Tổng đã phân bổ QK",
                         min_value=0.0, step=1000000.0,
-                        value=_already_db,
                         format="%.0f",
-                        key=f"alr_{expense.id}",
+                        key=alr_key,  # widget đọc/ghi session_state[alr_key]
                         help="Tổng số tiền đã phân bổ trong các kỳ quá khứ"
                     )
 
-                    # Live preview: Còn lại = Nguyên giá - Đã PB
+                    # Live preview
                     _rem_preview = adv_nguyen_gia - adv_already
                     if adv_nguyen_gia > 0:
-                        color = "normal" if _rem_preview > 0 else "off"
                         st.info(f"▶ **Còn lại sẽ phân bổ: {int(_rem_preview):,}**")
 
-                # Nút Lưu — nằm ngoài mọi form → Enter không bao giờ trigger
+                # ========== NÚT LƯU ==========
                 if st.button("🔄 Tính lại Phân bổ & Lưu", key=f"adv_save_{expense.id}", type="primary"):
                     try:
                         new_nguyen_gia = float(adv_nguyen_gia)
@@ -857,6 +862,8 @@ def page_list_expenses():
                                 ))
 
                             db.commit()
+                            # Xóa sync_flag → lần render tiếp theo sẽ sync lại từ DB mới
+                            st.session_state.pop(sync_key, None)
                             st.success(
                                 f"✅ Đã lưu! Nguyên giá: {int(new_nguyen_gia):,} | "
                                 f"QK: {int(new_already):,} | Còn lại: {int(remaining):,} | "
@@ -869,6 +876,7 @@ def page_list_expenses():
                         st.error(f"❌ Lỗi khi lưu: {ex}")
 
             # --- DOCUMENT MANAGEMENT (Toggle) ---
+
             if st.checkbox("📂 Quản lý chứng từ & Thao tác khác", key=f"toggle_docs_{expense.id}"):
                 st.markdown("---")
                 if expense.documents:
