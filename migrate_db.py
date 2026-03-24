@@ -87,34 +87,31 @@ if __name__ == "__main__":
 
 def fix_already_allocated_total_amount():
     """
-    MIGRATION: Chuẩn hoá data cũ về cấu trúc mới.
+    MIGRATION: Chuan hoa data cu ve cau truc moi.
 
-    CẤU TRÚC CŨ (trước bản fix):
-      - total_amount = NGUYÊN GIÁ GỐC (ví dụ: 83,805,633)
-      - already_allocated = lũy kế phân bổ quá khứ (có thể > total_amount!)
-      - Các historical alloc (days=0): amount = từng kỳ QK
-      - Các future alloc (days>0): amount tính từ NGUYÊN GIÁ (đã đúng)
-      - sum_future ≈ total_amount (vì future alloc tính trên nguyên giá)
-      ⚠️ Display mới: total_amount + already_allocated = DOUBLE COUNT!
+    CAU TRUC CU (truoc ban fix):
+      - total_amount = NGUYEN GIA GOC (vi du: 83,805,633)
+      - already_allocated = luy ke phan bo qua khu (co the > total_amount!)
+      - Cac historical alloc (days=0): amount = tung ky QK
+      - Cac future alloc (days>0): amount tinh tu NGUYEN GIA (da dung)
+      - sum_future approx total_amount (vi future alloc tinh tren nguyen gia)
+      - DISPLAY CU: total_amount + already_allocated = DOUBLE COUNT!
 
-    CẤU TRÚC MỚI (sau bản fix):
-      - total_amount = PHẦN CÒN LẠI = nguyên_giá - sum_QK
-      - already_allocated = sum_QK (giữ nguyên)
-      - Các future alloc (days>0): amount tính từ PHẦN CÒN LẠI
-      - sum_future ≈ total_amount ✓
-      - Display: total_amount + already_allocated = nguyên giá ✓
+    CAU TRUC MOI (sau ban fix):
+      - total_amount = PHAN CON LAI = nguyen_gia - sum_QK
+      - already_allocated = sum_QK (giu nguyen)
+      - Cac future alloc (days>0): amount tinh tu PHAN CON LAI
+      - sum_future approx total_amount
+      - Display: total_amount + already_allocated = nguyen gia
 
-    NHẬN BIẾT DATA CŨ:
-      sum_future ≈ total_amount VÀ already_allocated > 0
+    NHAN BIET DATA CU vs DATA MOI:
+      Data cu: sum_future approx total_amount VA sum_hist KHONG bang already_allocated
+               (vi data cu: total_amount = nguyen gia, sum_hist = QK thuc, nhung
+                already_allocated co the la gia tri thu cong nhap sai)
+      Data moi: sum_future approx total_amount VA sum_hist approx already_allocated
+               (vi ca hai deu nhat quan: already_allocated duoc tinh tu hist allocs)
 
-    FIX:
-      1. Tính sum_QK = sum(alloc.amount where days=0)
-      2. remaining = total_amount - sum_QK  (có thể âm nếu QK > nguyên giá)
-      3. Nếu remaining < 0: total_amount = 0 (nguyên giá nhỏ hơn phân bổ QK - đã hết)
-         Nếu remaining >= 0: total_amount = remaining
-      4. Scale lại future allocs: nhân theo tỷ lệ (remaining / sum_future)
-         (vì sum_future hiện tại = total_amount cũ, cần co lại về remaining)
-      5. already_allocated = sum_QK (cập nhật lại chính xác từ hist allocs)
+    KEY FIX: Them dieu kien kiem tra sum_hist == already_allocated de nhan dang chinh xac.
     """
     import sqlite3
     import os
@@ -158,30 +155,36 @@ def fix_already_allocated_total_amount():
             """, (exp_id,))
             sum_hist = cursor.fetchone()[0] or 0.0
 
-            # Tolerance cho so sánh
-            tol = max(1.0, total_amount * 0.01)   # 1% tolerance
+            # Tolerance cho so sanh
+            tol = max(1.0, total_amount * 0.01)  # 1% tolerance
 
-            # Nhận biết DATA CŨ: sum_future ≈ total_amount (nghĩa là future alloc
-            # được tính từ nguyên giá, không phải remaining)
-            is_old_struct = abs(sum_future - total_amount) <= tol
+            # Kiem tra tinh nhat quan cua hist allocs voi already_allocated:
+            # DATA MOI DUNG: sum_hist (alloc QK trong DB) phai xap xi already_allocated
+            # vi already_allocated duoc tinh chinh xac tu hist allocs khi nhap moi.
+            # DATA CU SAI: already_allocated la gia tri thu cong nhap, khac sum_hist.
+            tol_hist = max(1.0, already_allocated * 0.01)  # 1% tolerance cho hist
+            is_hist_consistent = (sum_hist > 0 and abs(sum_hist - already_allocated) <= tol_hist)
 
-            # Nhận biết DATA MỚI: sum_future ≈ (total_amount - already_allocated)
-            remaining_check = total_amount - already_allocated
-            is_new_struct = (remaining_check >= 0 and
-                             abs(sum_future - remaining_check) <= tol)
-
-            if is_new_struct and not is_old_struct:
-                # Data mới đã đúng
+            # Neu sum_hist nhat quan voi already_allocated: data da dung, skip
+            # Du sum_future == total_amount (dieu nay luon dung voi ca 2 cau truc),
+            # neu sum_hist == already_allocated thi chac chan la cau truc moi dung.
+            if is_hist_consistent:
                 skipped_count += 1
-                print(f"  [OK ] id={exp_id}: total={total_amount:,.0f} (remaining), "
-                      f"already={already_allocated:,.0f} → đã đúng cấu trúc mới")
+                print(f"  [OK ] id={exp_id}: total={total_amount:,.0f}, "
+                      f"already={already_allocated:,.0f}, sum_hist={sum_hist:,.0f} "
+                      f"-> hist nhat quan, da dung cau truc moi")
                 continue
 
+            # DATA CU: sum_hist KHONG nhat quan -> can fix
+            # (hoac sum_hist=0 nhung already_allocated>0: nhap thu cong khong co hist alloc)
+            is_old_struct = abs(sum_future - total_amount) <= tol
+
             if not is_old_struct:
-                # Không xác định được cấu trúc - bỏ qua an toàn
+                # Khong xac dinh duoc cau truc - bo qua an toan
                 skipped_count += 1
                 print(f"  [??] id={exp_id}: total={total_amount:,.0f}, "
-                      f"sum_future={sum_future:,.0f}, already={already_allocated:,.0f} → không rõ, bỏ qua")
+                      f"sum_future={sum_future:,.0f}, already={already_allocated:,.0f}, "
+                      f"sum_hist={sum_hist:,.0f} -> khong ro, bo qua")
                 continue
 
             # --- DATA CŨ: cần fix ---
