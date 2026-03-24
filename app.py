@@ -222,8 +222,8 @@ def page_create_expense():
         use_container_width=True,
         key="past_alloc_editor"
     )
-    # Sync edits back to session state so form submission can read them
-    st.session_state['past_allocations_rows'] = edited_past_alloc.to_dict('records')
+    # NOTE: Không sync lại session_state ở đây — gây vòng lặp vô hạn (React error #185).
+    # Streamlit tự động lưu kết quả data_editor vào st.session_state["past_alloc_editor"].
 
     st.markdown("---")
 
@@ -312,8 +312,23 @@ def page_create_expense():
                 total_already_allocated = 0
                 past_allocations_list = []
 
-                # Read past allocations from session state (edited outside form)
-                edited_past_alloc = pd.DataFrame(st.session_state.get('past_allocations_rows', []))
+                # Read past allocations từ key của data_editor (Streamlit tự lưu vào session_state)
+                _editor_state = st.session_state.get('past_alloc_editor', {})
+                _edited_rows = _editor_state.get('edited_rows', {})
+                _added_rows = _editor_state.get('added_rows', [])
+                _deleted_rows = set(_editor_state.get('deleted_rows', []))
+
+                # Reconstruct dataframe từ base + edits
+                _base_rows = st.session_state.get('past_allocations_rows', [{'amount': '', 'period': ''}])
+                _merged = []
+                for i, row in enumerate(_base_rows):
+                    if i not in _deleted_rows:
+                        r = dict(row)
+                        if i in _edited_rows:
+                            r.update(_edited_rows[i])
+                        _merged.append(r)
+                _merged.extend(_added_rows)
+                edited_past_alloc = pd.DataFrame(_merged) if _merged else pd.DataFrame(columns=['amount', 'period'])
                 for idx, row in edited_past_alloc.iterrows():
                     # Parse số tiền quá khứ (có thể dạng 1.200.000)
                     try:
